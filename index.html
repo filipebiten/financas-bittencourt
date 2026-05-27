@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1a1815">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bolso">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Bolso · Bittencourt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Tela de carregamento inicial -->
+<div id="splash" class="splash">
+  <div class="splash-mark">B</div>
+  <div class="splash-text">Bittencourt</div>
+</div>
+
+<!-- App principal -->
+<div id="app" class="app hidden">
+
+  <!-- HEADER fixo -->
+  <header class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-mark">B</div>
+      <div>
+        <div class="hdr-title" id="hdrTitle">Maio · 2026</div>
+        <div class="hdr-sub" id="hdrSub">dia 27 de 31</div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <button class="icon-btn" id="btnSync" aria-label="Status">
+        <span class="sync-dot" id="syncDot"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- TABS -->
+  <nav class="tabs">
+    <button class="tab active" data-tab="hoje">Hoje</button>
+    <button class="tab" data-tab="categorias">Categorias</button>
+    <button class="tab" data-tab="lancamentos">Lançamentos</button>
+    <button class="tab" data-tab="futuro">Futuro</button>
+  </nav>
+
+  <!-- CONTEÚDO -->
+  <main class="main">
+
+    <!-- ========= TAB HOJE ========= -->
+    <section class="view" id="view-hoje">
+
+      <!-- Termômetro principal -->
+      <div class="thermo">
+        <div class="thermo-label">Gastamos este mês</div>
+        <div class="thermo-value">
+          <span class="cur">R$</span><span id="gastoMes">0</span>
+        </div>
+        <div class="thermo-of">
+          de <strong id="tetoMes">R$ 7.746</strong>
+        </div>
+
+        <div class="thermo-bar">
+          <div class="thermo-bar-fill" id="thermoFill"></div>
+          <div class="thermo-bar-marker" id="thermoMarker"></div>
+        </div>
+
+        <div class="thermo-foot">
+          <div>
+            <div class="foot-lbl">Ritmo do mês</div>
+            <div class="foot-val" id="ritmoFech">Calculando…</div>
+          </div>
+          <div class="foot-right">
+            <div class="foot-lbl">Falta</div>
+            <div class="foot-val" id="dispMes">R$ 7.746</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aviso julho -->
+      <div class="warn" id="warnJulho">
+        <div class="warn-mark">!</div>
+        <div>
+          <div class="warn-title">A renda muda em julho</div>
+          <div class="warn-text"><span id="diasJulho">35</span> dias até a renda cair pra R$ 7.805. O orçamento de hoje já considera isso.</div>
+        </div>
+      </div>
+
+      <!-- Lista categorias com semáforo -->
+      <h2 class="sec-title">Categorias</h2>
+      <div class="cats" id="catsList"></div>
+
+      <!-- Botão lançar -->
+      <button class="fab" id="btnAdd" aria-label="Novo lançamento">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </section>
+
+    <!-- ========= TAB CATEGORIAS ========= -->
+    <section class="view hidden" id="view-categorias">
+      <h2 class="sec-title">Tetos por categoria</h2>
+      <p class="sec-sub">Toque pra editar o teto mensal. A soma deve caber na renda.</p>
+
+      <div class="budget-summary">
+        <div class="bs-row">
+          <span>Renda PIB</span>
+          <span class="bs-v">R$ 7.804,93</span>
+        </div>
+        <div class="bs-row">
+          <span>Total dos tetos</span>
+          <span class="bs-v" id="totalTetos">R$ 7.746</span>
+        </div>
+        <div class="bs-row bs-foot">
+          <span>Folga</span>
+          <span class="bs-v" id="folgaMes">R$ 59</span>
+        </div>
+      </div>
+
+      <div class="cats-edit" id="catsEdit"></div>
+    </section>
+
+    <!-- ========= TAB LANÇAMENTOS ========= -->
+    <section class="view hidden" id="view-lancamentos">
+      <h2 class="sec-title">Lançamentos do mês</h2>
+      <p class="sec-sub">Mais recentes primeiro. Toque pra editar ou excluir.</p>
+      <div class="lancs" id="lancsList">
+        <div class="empty" id="emptyLancs">Nenhum lançamento ainda este mês.</div>
+      </div>
+    </section>
+
+    <!-- ========= TAB FUTURO ========= -->
+    <section class="view hidden" id="view-futuro">
+      <h2 class="sec-title">O ano em uma página</h2>
+      <p class="sec-sub">Projeção com base no plano definido.</p>
+
+      <div class="time-card">
+        <div class="time-mark">Mai · Jun</div>
+        <div class="time-title">Preparação</div>
+        <div class="time-text">Renda ainda em R$ 14.000. Auditar assinaturas, ajustar Minas Brasil, zerar conta no negativo.</div>
+      </div>
+
+      <div class="time-card hl">
+        <div class="time-mark">Julho</div>
+        <div class="time-title">A vida nova começa</div>
+        <div class="time-text">Renda cai pra R$ 7.805. Entram R$ 23.000 da IUNGO: R$ 4.500 quita Santander, R$ 18.500 vira reserva.</div>
+      </div>
+
+      <div class="time-card">
+        <div class="time-mark">Jul · Set</div>
+        <div class="time-title">Teste real</div>
+        <div class="time-text">Três meses operando 100% no novo padrão. Reserva intocada. Cartão abaixo de R$ 5.000.</div>
+      </div>
+
+      <div class="time-card">
+        <div class="time-mark">Out em diante</div>
+        <div class="time-title">Reconstrução</div>
+        <div class="time-text">Reserva expande para 6 meses. Aportes ARCA voltam a crescer.</div>
+      </div>
+
+      <h2 class="sec-title" style="margin-top:36px">Projeções</h2>
+
+      <div class="proj-card">
+        <div class="proj-lbl">Mantendo o orçamento meta</div>
+        <div class="proj-v" id="projFolga">R$ 708 / ano de folga</div>
+        <div class="proj-sub">Folga mensal × 12 meses</div>
+      </div>
+
+      <div class="proj-card">
+        <div class="proj-lbl">Reserva inicial após julho</div>
+        <div class="proj-v">R$ 18.500</div>
+        <div class="proj-sub">≈ 2,4 meses de despesa coberta</div>
+      </div>
+
+      <div class="proj-card">
+        <div class="proj-lbl">Meta de reserva ideal (6 meses)</div>
+        <div class="proj-v">R$ 46.476</div>
+        <div class="proj-sub">Faltam R$ 27.976 após julho</div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ========= MODAL: NOVO LANÇAMENTO ========= -->
+  <div class="modal hidden" id="modalAdd">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Novo lançamento</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+
+      <div class="form">
+        <label class="lbl">Valor</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="inpValor" placeholder="0,00">
+        </div>
+
+        <label class="lbl">Estabelecimento ou descrição</label>
+        <div class="text-input">
+          <input type="text" id="inpDesc" placeholder="Ex: Drogasil, Posto, Almoço…" autocomplete="off">
+          <button class="mic-hint" type="button" id="micHint" aria-label="Use o microfone do teclado">🎙</button>
+        </div>
+        <div class="mic-tip">Toque no microfone do teclado pra ditar</div>
+
+        <label class="lbl">Categoria <span class="auto" id="autoCat"></span></label>
+        <select id="inpCat" class="select"></select>
+
+        <label class="lbl">Data</label>
+        <input type="date" id="inpData" class="select">
+
+        <button class="btn-primary" id="btnSalvar">Salvar lançamento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: NOVA CATEGORIA PARA ESTABELECIMENTO ========= -->
+  <div class="modal hidden" id="modalAprende">
+    <div class="modal-bg"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Categoria nova</h3>
+      </div>
+      <div class="form">
+        <p class="aprende-text">Não conheço <strong id="aprendeEstab">esse estabelecimento</strong>. Qual categoria?</p>
+        <select id="aprendeCat" class="select"></select>
+        <label class="check">
+          <input type="checkbox" id="aprendeRemember" checked>
+          <span>Lembrar pra próximas vezes</span>
+        </label>
+        <button class="btn-primary" id="btnAprende">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: EDITAR TETO ========= -->
+  <div class="modal hidden" id="modalTeto">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="tetoCatNome">Editar teto</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <label class="lbl">Teto mensal (R$)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="tetoValor">
+        </div>
+        <button class="btn-primary" id="btnSalvarTeto">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
