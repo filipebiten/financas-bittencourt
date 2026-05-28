@@ -47,6 +47,7 @@
     <button class="tab active" data-tab="hoje">Hoje</button>
     <button class="tab" data-tab="historico">Histórico</button>
     <button class="tab" data-tab="investimentos">Investir</button>
+    <button class="tab" data-tab="fundos">Cofres</button>
     <button class="tab" data-tab="categorias">Categorias</button>
     <button class="tab" data-tab="lancamentos">Lançamentos</button>
     <button class="tab" data-tab="futuro">Futuro</button>
@@ -175,13 +176,24 @@
 
       <!-- detalhe por ativo -->
       <h2 class="sec-title" style="margin-top:32px">Ativos</h2>
-      <p class="sec-sub">Toque pra atualizar o valor.</p>
+      <p class="sec-sub">Toque pra atualizar o valor. Mantenha pressionado pra excluir.</p>
       <div class="ativos" id="ativosList"></div>
+      <button class="btn-secondary" id="btnNovoAtivo" style="margin-top:14px;width:100%">+ Novo ativo</button>
 
       <!-- Grão -->
       <h2 class="sec-title" style="margin-top:32px">Grão · Previdência</h2>
       <p class="sec-sub">VGBL Regressivo — longo prazo, fora do ARCA.</p>
       <div class="grao-card" id="graoCard"></div>
+    </section>
+
+    <!-- ========= TAB FUNDOS SAZONAIS (Cofres) ========= -->
+    <section class="view hidden" id="view-fundos">
+      <h2 class="sec-title">Cofres sazonais</h2>
+      <p class="sec-sub">Pra gastos que chegam de uma vez por ano. Guarde aos poucos.</p>
+
+      <div class="cofres" id="cofresList"></div>
+
+      <button class="btn-secondary" id="btnAddCofre" style="margin-top:14px;width:100%">+ Novo cofre</button>
     </section>
 
     <!-- ========= TAB CATEGORIAS ========= -->
@@ -205,6 +217,8 @@
       </div>
 
       <div class="cats-edit" id="catsEdit"></div>
+
+      <button class="btn-secondary" id="btnNovaCategoria" style="margin-top:14px;width:100%">+ Nova categoria</button>
     </section>
 
     <!-- ========= TAB LANÇAMENTOS ========= -->
@@ -227,73 +241,65 @@
 
     <!-- ========= TAB FUTURO ========= -->
     <section class="view hidden" id="view-futuro">
-      <h2 class="sec-title">O ano em uma página</h2>
-      <p class="sec-sub">Projeção com base no plano definido.</p>
+      <h2 class="sec-title">Projeção do orçamento</h2>
+      <p class="sec-sub">Comparativo: realidade vs plano. Quanto sobra (ou falta) no tempo.</p>
 
-      <div class="time-card">
-        <div class="time-mark">Mai · Jun</div>
-        <div class="time-title">Preparação</div>
-        <div class="time-text">Renda ainda em R$ 14.000. Auditar assinaturas, ajustar Minas Brasil, zerar conta no negativo.</div>
-      </div>
-
-      <div class="time-card hl">
-        <div class="time-mark">Julho</div>
-        <div class="time-title">A vida nova começa</div>
-        <div class="time-text">Renda cai pra R$ 7.805. Entram R$ 23.000 da IUNGO: R$ 4.500 quita Santander, R$ 18.500 vira reserva.</div>
-      </div>
-
-      <div class="time-card">
-        <div class="time-mark">Jul · Set</div>
-        <div class="time-title">Teste real</div>
-        <div class="time-text">Três meses operando 100% no novo padrão. Reserva intocada. Cartão abaixo de R$ 5.000.</div>
-      </div>
-
-      <div class="time-card">
-        <div class="time-mark">Out em diante</div>
-        <div class="time-title">Reconstrução</div>
-        <div class="time-text">Reserva expande para 6 meses. Aportes ARCA voltam a crescer.</div>
-      </div>
-
-      <h2 class="sec-title" style="margin-top:36px">Projeções</h2>
-
-      <div class="proj-card">
-        <div class="proj-lbl">Mantendo o orçamento meta</div>
-        <div class="proj-v" id="projFolga">R$ 708 / ano de folga</div>
-        <div class="proj-sub">Folga mensal × 12 meses</div>
-      </div>
-
-      <div class="proj-card">
-        <div class="proj-lbl">Reserva inicial após julho</div>
-        <div class="proj-v">R$ 18.500</div>
-        <div class="proj-sub">≈ 2,4 meses de despesa coberta</div>
-      </div>
-
-      <div class="proj-card">
-        <div class="proj-lbl">Meta de reserva ideal (6 meses)</div>
-        <div class="proj-v">R$ 46.476</div>
-        <div class="proj-sub">Faltam R$ 27.976 após julho</div>
-      </div>
-
-      <h2 class="sec-title" style="margin-top:36px">Projeção dos investimentos</h2>
-      <p class="sec-sub">Recalcula sozinho quando você atualiza os saldos. Premissas ajustáveis abaixo.</p>
-
-      <div class="proj-controls">
-        <div class="proj-ctrl">
-          <label>Aporte mensal ARCA</label>
-          <div class="proj-slider-val" id="aporteVal">R$ 200</div>
-          <input type="range" id="aporteSlider" min="0" max="2000" step="50" value="200">
+      <div class="dash-twin">
+        <div class="dash-twin-col real">
+          <div class="dash-twin-lbl">Se continuar como está</div>
+          <div class="dash-twin-sub">Baseado em 12 meses</div>
+          <div class="dash-twin-val" id="orcRealMes">—</div>
+          <div class="dash-twin-foot" id="orcRealAno">—</div>
         </div>
-        <div class="proj-ctrl">
-          <label>Rendimento anual estimado</label>
-          <div class="proj-slider-val" id="rendVal">10%</div>
-          <input type="range" id="rendSlider" min="4" max="16" step="1" value="10">
+        <div class="dash-twin-col plano">
+          <div class="dash-twin-lbl">Se cumprir o plano</div>
+          <div class="dash-twin-sub">Orçamento meta</div>
+          <div class="dash-twin-val" id="orcPlanoMes">—</div>
+          <div class="dash-twin-foot" id="orcPlanoAno">—</div>
         </div>
       </div>
 
-      <div class="proj-result" id="projResult"></div>
+      <div class="dash-explain" id="dashExplain"></div>
+
+      <h2 class="sec-title" style="margin-top:36px">Patrimônio investido</h2>
+      <p class="sec-sub">Projeção ARCA e Grão até a aposentadoria.</p>
+
+      <div class="proj-twin">
+        <div class="proj-twin-col">
+          <div class="proj-twin-lbl">ARCA</div>
+          <div class="proj-twin-sub">movimentável</div>
+          <div class="proj-twin-now" id="arcaNow">—</div>
+          <div class="proj-twin-row"><span>1 ano</span><strong id="arca1a">—</strong></div>
+          <div class="proj-twin-row"><span>5 anos</span><strong id="arca5a">—</strong></div>
+          <div class="proj-twin-row"><span>10 anos</span><strong id="arca10a">—</strong></div>
+        </div>
+        <div class="proj-twin-col gold">
+          <div class="proj-twin-lbl">Grão</div>
+          <div class="proj-twin-sub">aposentadoria em 2054</div>
+          <div class="proj-twin-now" id="graoNow">—</div>
+          <div class="proj-twin-row"><span>5 anos</span><strong id="grao5a">—</strong></div>
+          <div class="proj-twin-row"><span>15 anos</span><strong id="grao15a">—</strong></div>
+          <div class="proj-twin-row"><span>aos 65</span><strong id="grao65">—</strong></div>
+        </div>
+      </div>
+
+      <h3 class="dash-h3">Evolução do patrimônio</h3>
+      <div class="dash-chart-card">
+        <svg id="patChart" viewBox="0 0 320 160" preserveAspectRatio="none"></svg>
+        <div class="dash-chart-legend">
+          <span><span class="lg-dot" style="background:var(--warm)"></span>ARCA</span>
+          <span><span class="lg-dot" style="background:var(--gold)"></span>Grão</span>
+        </div>
+        <div class="chart-xlabels" id="patChartLabels"></div>
+      </div>
+
+      <details class="dash-premissas">
+        <summary>Premissas usadas</summary>
+        <div class="dash-prem-body" id="dashPremBody"></div>
+      </details>
 
       <div class="proj-disclaimer">
-        Projeção não é previsão. Os números assumem aporte e rendimento constantes — a vida real tem altos e baixos. Use como direção, não como certeza.
+        Projeção não é previsão. Os números assumem média histórica por classe de ativo e aporte constante. A realidade tem altos e baixos.
       </div>
 
     </section>
@@ -407,6 +413,129 @@
           <input type="text" inputmode="decimal" id="ativoValor">
         </div>
         <button class="btn-primary" id="btnSalvarAtivo">Salvar</button>
+      </div>
+    </div>
+  </div>
+  <!-- ========= MODAL: NOVA/EDITAR CATEGORIA ========= -->
+  <div class="modal hidden" id="modalCategoria">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="catModalTitle">Nova categoria</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <label class="lbl">Ícone</label>
+        <div class="icon-grid" id="iconGrid"></div>
+        <input type="hidden" id="catIcone" value="📦">
+
+        <label class="lbl">Nome</label>
+        <div class="text-input">
+          <input type="text" id="catNome" placeholder="Ex: Pets, Lazer, Educação…">
+        </div>
+
+        <label class="lbl">Teto mensal (R$)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="catTeto" placeholder="0,00">
+        </div>
+
+        <button class="btn-primary" id="btnSalvarCategoria">Salvar</button>
+        <button class="btn-danger hidden" id="btnDeletarCategoria">Excluir categoria</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: DELETAR CATEGORIA (com lançamentos) ========= -->
+  <div class="modal hidden" id="modalDeletarCat">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Excluir categoria</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <p class="aprende-text" id="delCatTexto">—</p>
+        <button class="btn-secondary" id="btnDelMoveOutros">Mover lançamentos pra "Outros"</button>
+        <button class="btn-danger" id="btnDelTudo">Excluir lançamentos junto</button>
+        <button class="btn-link" data-close>Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: NOVO ATIVO ========= -->
+  <div class="modal hidden" id="modalNovoAtivo">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Novo ativo</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <label class="lbl">Quadrante</label>
+        <select id="novoAtivoQuad" class="select">
+          <option value="rendaFixa">🟣 Renda Fixa</option>
+          <option value="acoesBR">🟠 Ações BR</option>
+          <option value="fiis">🟢 FIIs</option>
+          <option value="internacional">🔴 Internacional</option>
+        </select>
+
+        <label class="lbl">Nome</label>
+        <div class="text-input">
+          <input type="text" id="novoAtivoNome" placeholder="Ex: VALE3, HGLG11, BTC, VOO…">
+        </div>
+
+        <label class="lbl">Valor atual (R$)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="novoAtivoValor" placeholder="0,00">
+        </div>
+
+        <label class="check" id="checkCripto" style="display:none">
+          <input type="checkbox" id="novoAtivoCripto">
+          <span>É cripto? (entra no cálculo de concentração)</span>
+        </label>
+
+        <button class="btn-primary" id="btnSalvarNovoAtivo">Adicionar ativo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: NOVO/EDITAR COFRE ========= -->
+  <div class="modal hidden" id="modalCofre">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="cofreModalTitle">Novo cofre</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <label class="lbl">Pra que é esse cofre?</label>
+        <div class="text-input">
+          <input type="text" id="cofreNome" placeholder="Ex: IPVA, IPTU, Manutenção do carro…">
+        </div>
+
+        <label class="lbl">Ícone</label>
+        <div class="icon-grid" id="cofreIconGrid"></div>
+        <input type="hidden" id="cofreIcone" value="🏛️">
+
+        <label class="lbl">Meta (valor total a juntar)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="cofreMeta" placeholder="1.800,00">
+        </div>
+
+        <label class="lbl">Mês alvo (quando precisa do dinheiro)</label>
+        <select id="cofreMesAlvo" class="select"></select>
+
+        <label class="lbl">Quanto já tem guardado (R$)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="cofreAtual" placeholder="0,00">
+        </div>
+
+        <button class="btn-primary" id="btnSalvarCofre">Salvar cofre</button>
+        <button class="btn-danger hidden" id="btnDeletarCofre">Excluir cofre</button>
       </div>
     </div>
   </div>

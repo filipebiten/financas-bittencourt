@@ -77,6 +77,34 @@ const INVEST_SEMENTE = {
 const GRAO_SEMENTE = { valor:3429.84, rendimento:429.84 };
 
 let editandoAtivo = null; // {quad, idx}
+let editandoCategoria = null; // id da categoria sendo editada (null = nova)
+let editandoCofre = null; // id do cofre
+
+// ============================================================
+// PREMISSAS DE PROJEÇÃO (médias históricas razoáveis)
+// ============================================================
+const RENDIMENTOS_ANUAIS = {
+  rendaFixa: 0.105,      // ~Selic atual (~10,5%)
+  acoesBR: 0.10,         // Ibovespa médio 10 anos
+  fiis: 0.10,            // IFIX médio
+  internacional: 0.12,   // mix BTC (volátil) + ETFs estáveis, conservador
+};
+const RENDIMENTO_GRAO = 0.09;   // VGBL Regressivo, mix conservador
+
+// Data de nascimento do Filipe: 10/11/1989 → aposentadoria 10/11/2054
+const NASCIMENTO = new Date(1989, 10, 10); // mes=10 = novembro (0-indexed)
+const APOSENTADORIA_ANO = 2054;
+
+function idadeHoje(){
+  const hoje = new Date();
+  let idade = hoje.getFullYear() - NASCIMENTO.getFullYear();
+  const m = hoje.getMonth() - NASCIMENTO.getMonth();
+  if(m < 0 || (m === 0 && hoje.getDate() < NASCIMENTO.getDate())) idade--;
+  return idade;
+}
+function anosAteAposentadoria(){
+  return APOSENTADORIA_ANO - new Date().getFullYear();
+}
 
 // ============================================================
 // DADOS SEMENTE — extraídos do histórico do Filipe nesse chat
@@ -243,6 +271,7 @@ let state = {
   estabelecimentos: {},  // texto digitado -> categoriaId
   investimentos: null,   // {rendaFixa, acoesBR, fiis, internacional}
   grao: null,            // {valor, rendimento}
+  cofres: [],            // [{id, nome, icone, meta, mesAlvo, atual, ...}]
   mes: new Date().getMonth(),
   ano: new Date().getFullYear(),
 };
@@ -366,6 +395,73 @@ async function escutaInvestimentos(){
   });
 }
 
+async function escutaCofres(){
+  const q = query(collection(db, 'cofres'), orderBy('criadoEm', 'desc'));
+  onSnapshot(q, (snap) => {
+    state.cofres = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    render();
+  });
+}
+
+// ===== CRUD categorias =====
+async function criaCategoria({id, nome, icone, teto}){
+  const ref = doc(db, 'categorias', id);
+  await setDoc(ref, { id, nome, icone, teto, ordem: 50, criadoEm: Date.now() });
+}
+async function atualizaCategoria(id, dados){
+  await updateDoc(doc(db, 'categorias', id), dados);
+}
+async function deletaCategoriaCompleto(catId, modo){
+  // modo: 'moveOutros' ou 'deletaTudo'
+  const lancsRef = query(collection(db, 'lancamentos'), where('categoriaId', '==', catId));
+  const snap = await getDocs(lancsRef);
+  const batch = writeBatch(db);
+  snap.docs.forEach(d => {
+    if(modo === 'moveOutros'){
+      batch.update(d.ref, { categoriaId: 'outros' });
+    } else {
+      batch.delete(d.ref);
+    }
+  });
+  batch.delete(doc(db, 'categorias', catId));
+  await batch.commit();
+}
+async function contaLancamentosDaCategoria(catId){
+  const lancsRef = query(collection(db, 'lancamentos'), where('categoriaId', '==', catId));
+  const snap = await getDocs(lancsRef);
+  return snap.size;
+}
+
+// ===== CRUD ativos investimento =====
+async function adicionaAtivo(quad, ativo){
+  const inv = JSON.parse(JSON.stringify(state.investimentos));
+  if(!inv[quad]) inv[quad] = [];
+  inv[quad].push(ativo);
+  await updateDoc(doc(db, 'investimentos', 'carteira'), {
+    arca: inv,
+    atualizado: new Date().toISOString().split('T')[0]
+  });
+}
+async function deletaAtivo(quad, idx){
+  const inv = JSON.parse(JSON.stringify(state.investimentos));
+  inv[quad].splice(idx, 1);
+  await updateDoc(doc(db, 'investimentos', 'carteira'), {
+    arca: inv,
+    atualizado: new Date().toISOString().split('T')[0]
+  });
+}
+
+// ===== CRUD cofres =====
+async function criaCofre(dados){
+  await addDoc(collection(db, 'cofres'), { ...dados, criadoEm: Date.now() });
+}
+async function atualizaCofre(id, dados){
+  await updateDoc(doc(db, 'cofres', id), dados);
+}
+async function deletaCofre(id){
+  await deleteDoc(doc(db, 'cofres', id));
+}
+
 async function atualizaAtivo(quad, idx, novoValor){
   const inv = JSON.parse(JSON.stringify(state.investimentos));
   inv[quad][idx].valor = novoValor;
@@ -448,6 +544,7 @@ function render(){
   renderHoje();
   renderHistorico();
   renderInvestimentos();
+  renderCofres();
   renderCategorias();
   renderLancamentos();
   renderFuturo();
@@ -790,6 +887,7 @@ function renderInvestimentos(){
     al.querySelectorAll('.ativo').forEach(el => {
       el.onclick = () => abreModalAtivo(el.dataset.quad, parseInt(el.dataset.idx));
     });
+    setupLongPressAtivos();
   }
 
   // Grão
@@ -872,7 +970,7 @@ function renderCategorias(){
       <div class="cat-edit-name">${cat.icone||''} ${cat.nome}</div>
       <div class="cat-edit-teto">${fmt(cat.teto||0)}</div>
     `;
-    el.onclick = () => abreModalTeto(cat);
+    el.onclick = () => abreModalCategoria(cat.id);
     box.appendChild(el);
   });
 
@@ -925,67 +1023,232 @@ function renderLancamentos(){
   });
 }
 
-function renderFuturo(){
-  const tetoTotal = state.categorias.reduce((acc,c) => acc + (c.teto||0), 0);
-  const folga = 7804.93 - tetoTotal;
-  setTxt('projFolga', `${fmt(folga*12)} / ano de folga`);
+// ============================================================
+// COFRES (Fundos Sazonais)
+// ============================================================
+const COFRES_ICONES = ['🏛️','🚗','🏠','✈️','🎓','💍','🎁','👶','🐕','💊','🛠️','💻','🎉','📚','🎂','🍰'];
 
-  renderProjecaoInvest();
+function renderCofres(){
+  const box = document.getElementById('cofresList');
+  if(!box) return;
+  if(state.cofres.length === 0){
+    box.innerHTML = `<div class="empty">Crie cofres pra IPVA, IPTU, manutenção do carro, viagem… qualquer gasto grande que chega de uma vez.</div>`;
+    return;
+  }
+  const hoje = new Date();
+  box.innerHTML = state.cofres.map(cofre => {
+    const atual = cofre.atual || 0;
+    const meta = cofre.meta || 1;
+    const pct = Math.min(100, (atual/meta)*100);
+    const completo = atual >= meta;
+    // calcular mensal necessário pra atingir meta
+    const mesAlvo = parseInt(cofre.mesAlvo) || (hoje.getMonth()+1);
+    const anoAlvo = (mesAlvo <= hoje.getMonth()+1) ? hoje.getFullYear()+1 : hoje.getFullYear();
+    const dataAlvo = new Date(anoAlvo, mesAlvo-1, 1);
+    const mesesRest = Math.max(1, Math.ceil((dataAlvo - hoje) / (1000*60*60*24*30)));
+    const mensal = (meta - atual) / mesesRest;
+    return `
+      <div class="cofre" data-id="${cofre.id}">
+        <div class="cofre-top">
+          <span class="cofre-nome">${cofre.icone||'🏛️'} ${cofre.nome}</span>
+          <span class="cofre-mes">${MESES_NOMES[mesAlvo-1].slice(0,3)} · ${anoAlvo}</span>
+        </div>
+        <div class="cofre-bar"><div class="cofre-bar-fill ${completo?'completo':''}" style="width:${pct}%"></div></div>
+        <div class="cofre-vals">
+          <span class="atual">${fmt(atual)}</span>
+          <span class="meta">de ${fmt(meta)}</span>
+        </div>
+        ${completo ? `<div class="cofre-mensal" style="color:var(--green)">✓ Meta atingida</div>` : `<div class="cofre-mensal">Guarde ${fmt(mensal)}/mês até ${MESES_NOMES[mesAlvo-1].slice(0,3)}</div>`}
+      </div>
+    `;
+  }).join('');
+  box.querySelectorAll('.cofre').forEach(el => {
+    el.onclick = () => abreModalCofre(el.dataset.id);
+  });
 }
 
-function renderProjecaoInvest(){
-  // patrimônio ARCA atual
-  let totalArca = 0;
-  if(state.investimentos){
-    for(const q of Object.keys(QUAD_INFO)){
-      totalArca += (state.investimentos[q]||[]).reduce((a,x)=>a+(x.valor||0),0);
+// ============================================================
+// DASHBOARD FUTURO — Projeções automáticas
+// ============================================================
+function renderFuturo(){
+  renderProjOrcamento();
+  renderProjInvestimentos();
+}
+
+function renderProjOrcamento(){
+  // gasto REAL: média dos últimos 12 meses do histórico
+  const meses = Object.keys(HISTORICO_MENSAL);
+  let totalReal12m = 0;
+  meses.forEach(m => totalReal12m += Object.values(HISTORICO_MENSAL[m]).reduce((a,b)=>a+b,0));
+  const realMensal = totalReal12m / meses.length;
+
+  // tendência: comparar últimos 3 com 3 anteriores
+  const ult3 = meses.slice(-3).reduce((a,m) => a + Object.values(HISTORICO_MENSAL[m]).reduce((s,v)=>s+v,0), 0)/3;
+  const ant3 = meses.slice(-6,-3).reduce((a,m) => a + Object.values(HISTORICO_MENSAL[m]).reduce((s,v)=>s+v,0), 0)/3;
+  const tendencia = ult3 - ant3; // se positivo, está subindo
+
+  // gasto PLANO: soma dos tetos
+  const planoMensal = state.categorias.reduce((a,c) => a + (c.teto||0), 0);
+
+  // renda hoje vs pós-julho
+  const hoje = new Date();
+  const isPosJulho = hoje.getMonth() >= 6 || hoje.getFullYear() > 2026;
+  const renda = isPosJulho ? 7804.93 : 14000;
+  const rendaPosJulho = 7804.93;
+
+  // diferença com a renda PÓS-julho (cenário a planejar)
+  const realDiff = rendaPosJulho - realMensal;  // negativo = déficit
+  const planoDiff = rendaPosJulho - planoMensal; // positivo = folga
+
+  setTxt('orcRealMes', (realDiff>=0?'+':'−') + fmt(Math.abs(realDiff)) + '/mês');
+  setTxt('orcRealAno', `${realDiff>=0?'Sobra':'Falta'} ${fmt(Math.abs(realDiff*12))} no ano`);
+  const elRM = document.getElementById('orcRealMes');
+  if(elRM) elRM.className = 'dash-twin-val ' + (realDiff>=0 ? 'pos' : 'neg');
+
+  setTxt('orcPlanoMes', (planoDiff>=0?'+':'−') + fmt(Math.abs(planoDiff)) + '/mês');
+  setTxt('orcPlanoAno', `${planoDiff>=0?'Sobra':'Falta'} ${fmt(Math.abs(planoDiff*12))} no ano`);
+  const elPM = document.getElementById('orcPlanoMes');
+  if(elPM) elPM.className = 'dash-twin-val ' + (planoDiff>=0 ? 'pos' : 'neg');
+
+  // explicação
+  const exp = document.getElementById('dashExplain');
+  if(exp){
+    const diff = realMensal - planoMensal;
+    let tendTxt = '';
+    if(Math.abs(tendencia) > 100){
+      tendTxt = tendencia > 0
+        ? `Atenção: nos últimos 3 meses os gastos vêm <strong>subindo</strong> em média ${fmt(tendencia)}/mês comparado ao trimestre anterior.`
+        : `Boa notícia: os gastos vêm <strong>caindo</strong> ${fmt(Math.abs(tendencia))}/mês nos últimos 3 meses.`;
     }
+    exp.innerHTML = `
+      Hoje (gasto real médio): <strong>${fmt(realMensal)}/mês</strong>.<br>
+      Plano (orçamento meta): <strong>${fmt(planoMensal)}/mês</strong>.<br>
+      Diferença: <strong>${fmt(Math.abs(diff))}/mês</strong> entre o real e o que cabe.
+      ${tendTxt ? '<br><br>' + tendTxt : ''}
+    `;
+  }
+}
+
+function renderProjInvestimentos(){
+  if(!state.investimentos){ return; }
+
+  // saldos por quadrante
+  const saldos = {};
+  let totalArca = 0;
+  for(const q of Object.keys(QUAD_INFO)){
+    saldos[q] = (state.investimentos[q]||[]).reduce((a,x)=>a+(x.valor||0),0);
+    totalArca += saldos[q];
   }
   const grao = state.grao ? state.grao.valor : 0;
 
-  const aporteEl = document.getElementById('aporteSlider');
-  const rendEl = document.getElementById('rendSlider');
-  if(!aporteEl || !rendEl) return;
+  // aporte mensal estimado: pega categoria "investimentos" do orçamento meta
+  const catInv = state.categorias.find(c => c.id === 'investimentos');
+  const aporteTotal = catInv ? (catInv.teto || 0) : 400;
+  // dividir aporte: metade ARCA (R$200), metade Grão (R$200) – conforme conversado
+  const aporteARCA = aporteTotal / 2;
+  const aporteGrao = aporteTotal / 2;
 
-  const aporte = parseFloat(aporteEl.value);
-  const rendAnual = parseFloat(rendEl.value)/100;
-  const rendMensal = Math.pow(1+rendAnual, 1/12) - 1;
+  // rendimento médio ponderado ARCA conforme distribuição atual
+  let rendARCA = 0;
+  if(totalArca > 0){
+    for(const q of Object.keys(QUAD_INFO)){
+      const peso = saldos[q]/totalArca;
+      rendARCA += peso * RENDIMENTOS_ANUAIS[q];
+    }
+  }
+  const rendARCAmensal = Math.pow(1+rendARCA, 1/12) - 1;
+  const rendGraoMensal = Math.pow(1+RENDIMENTO_GRAO, 1/12) - 1;
 
-  setTxt('aporteVal', fmt(aporte));
-  setTxt('rendVal', rendEl.value + '%');
-
-  // projeção composta: FV = P*(1+i)^n + PMT*[((1+i)^n - 1)/i]
-  function projeta(principal, pmt, meses){
-    const i = rendMensal;
-    if(i === 0) return principal + pmt*meses;
-    return principal*Math.pow(1+i,meses) + pmt*((Math.pow(1+i,meses)-1)/i);
+  function proj(P, pmt, meses, iMensal){
+    if(iMensal === 0) return P + pmt*meses;
+    return P*Math.pow(1+iMensal, meses) + pmt*((Math.pow(1+iMensal, meses)-1)/iMensal);
   }
 
-  const horizontes = [
-    {lbl:'Em 1 ano',  meses:12},
-    {lbl:'Em 5 anos', meses:60},
-    {lbl:'Em 10 anos',meses:120},
-  ];
+  // ARCA hoje, 1a, 5a, 10a
+  setTxt('arcaNow', fmt(totalArca));
+  setTxt('arca1a',  fmt(proj(totalArca, aporteARCA, 12, rendARCAmensal)));
+  setTxt('arca5a',  fmt(proj(totalArca, aporteARCA, 60, rendARCAmensal)));
+  setTxt('arca10a', fmt(proj(totalArca, aporteARCA, 120, rendARCAmensal)));
 
-  const res = document.getElementById('projResult');
-  if(res){
-    res.innerHTML = horizontes.map(h => {
-      const arcaFut = projeta(totalArca, aporte, h.meses);
-      return `
-        <div class="proj-row">
-          <div class="proj-row-lbl"><strong>${h.lbl}</strong>ARCA com aporte de ${fmt(aporte)}/mês</div>
-          <div class="proj-row-val">${fmt(arcaFut)}</div>
-        </div>
-      `;
-    }).join('');
+  // Grão hoje, 5a, 15a, aos 65
+  setTxt('graoNow', fmt(grao));
+  setTxt('grao5a',  fmt(proj(grao, aporteGrao, 60, rendGraoMensal)));
+  setTxt('grao15a', fmt(proj(grao, aporteGrao, 180, rendGraoMensal)));
+  const mesesAteApos = anosAteAposentadoria() * 12;
+  setTxt('grao65', fmt(proj(grao, aporteGrao, mesesAteApos, rendGraoMensal)));
+
+  // gráfico evolução ano a ano (próximos 30 anos)
+  const anos = 30;
+  const arcaSerie = [], graoSerie = [];
+  for(let a=0; a<=anos; a++){
+    arcaSerie.push(proj(totalArca, aporteARCA, a*12, rendARCAmensal));
+    graoSerie.push(proj(grao, aporteGrao, a*12, rendGraoMensal));
+  }
+  desenhaPatChart(arcaSerie, graoSerie, anos);
+
+  // labels do x
+  const elX = document.getElementById('patChartLabels');
+  if(elX){
+    const hojeAno = new Date().getFullYear();
+    elX.innerHTML = [0, 10, 20, 30].map(a => `<span>${hojeAno + a}</span>`).join('');
+  }
+
+  // premissas visíveis
+  const prem = document.getElementById('dashPremBody');
+  if(prem){
+    prem.innerHTML = `
+      <ul>
+        <li>Renda Fixa: <strong>${(RENDIMENTOS_ANUAIS.rendaFixa*100).toFixed(1)}%</strong> a.a. (~Selic)</li>
+        <li>Ações BR: <strong>${(RENDIMENTOS_ANUAIS.acoesBR*100).toFixed(1)}%</strong> a.a. (Ibov 10 anos)</li>
+        <li>FIIs: <strong>${(RENDIMENTOS_ANUAIS.fiis*100).toFixed(1)}%</strong> a.a. (IFIX médio)</li>
+        <li>Internacional: <strong>${(RENDIMENTOS_ANUAIS.internacional*100).toFixed(1)}%</strong> a.a. (mix conservador BTC + ETFs)</li>
+        <li>Grão (VGBL): <strong>${(RENDIMENTO_GRAO*100).toFixed(1)}%</strong> a.a.</li>
+        <li>Aporte mensal total: <strong>${fmt(aporteTotal)}</strong> (${fmt(aporteARCA)} ARCA + ${fmt(aporteGrao)} Grão), vindo da categoria Investimentos.</li>
+        <li>Rendimento médio ARCA hoje: <strong>${(rendARCA*100).toFixed(1)}%</strong> (ponderado pela alocação atual).</li>
+      </ul>
+    `;
   }
 }
 
+function desenhaPatChart(arca, grao, anos){
+  const svg = document.getElementById('patChart');
+  if(!svg) return;
+  const W = 320, H = 160, padX = 6, padY = 12;
+  const totais = arca.map((v,i) => v + grao[i]);
+  const max = Math.max(...totais) * 1.05;
+  const min = 0;
+  function ptos(serie, color){
+    const pts = serie.map((v,i) => {
+      const x = padX + (i/(serie.length-1)) * (W - padX*2);
+      const y = H - padY - ((v-min)/(max-min||1)) * (H - padY*2);
+      return [x, y];
+    });
+    const linePath = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const areaPath = linePath + ` L${pts[pts.length-1][0].toFixed(1)},${H-padY} L${pts[0][0].toFixed(1)},${H-padY} Z`;
+    return { linePath, areaPath };
+  }
+  const a = ptos(arca);
+  const g = ptos(grao);
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#c4622d" stop-opacity="0.18"/>
+        <stop offset="100%" stop-color="#c4622d" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="gG" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#a87f3e" stop-opacity="0.22"/>
+        <stop offset="100%" stop-color="#a87f3e" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="${a.areaPath}" fill="url(#gA)"/>
+    <path d="${g.areaPath}" fill="url(#gG)"/>
+    <path d="${a.linePath}" fill="none" stroke="#c4622d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${g.linePath}" fill="none" stroke="#a87f3e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  `;
+}
+
 function bindProjecaoSliders(){
-  const a = document.getElementById('aporteSlider');
-  const r = document.getElementById('rendSlider');
-  if(a) a.addEventListener('input', renderProjecaoInvest);
-  if(r) r.addEventListener('input', renderProjecaoInvest);
+  // mantido vazio agora — sliders foram removidos da v2.3
 }
 
 // ============================================================
@@ -1391,6 +1654,244 @@ async function importaPdfPendentes(){
 }
 
 // ============================================================
+// MODAIS: NOVA/EDITAR CATEGORIA, NOVO ATIVO, COFRE
+// ============================================================
+const ICONES_CATEGORIA = ['📦','🏠','🛒','🍔','🚗','⛽','📱','📺','💊','👶','🎁','🙏','✂️','💄','🛡️','📈','🎓','🎨','🏋️','🐕','✈️','💻','📚','💼'];
+
+function abreModalCategoria(catId){
+  editandoCategoria = catId;
+  const titulo = document.getElementById('catModalTitle');
+  const btnDel = document.getElementById('btnDeletarCategoria');
+  const inpNome = document.getElementById('catNome');
+  const inpTeto = document.getElementById('catTeto');
+  const inpIcone = document.getElementById('catIcone');
+
+  if(catId){
+    const cat = state.categorias.find(c => c.id === catId);
+    titulo.textContent = `Editar: ${cat.nome}`;
+    inpNome.value = cat.nome;
+    inpTeto.value = (cat.teto||0).toString().replace('.', ',');
+    inpIcone.value = cat.icone || '📦';
+    btnDel.classList.remove('hidden');
+  } else {
+    titulo.textContent = 'Nova categoria';
+    inpNome.value = '';
+    inpTeto.value = '';
+    inpIcone.value = '📦';
+    btnDel.classList.add('hidden');
+  }
+
+  // renderiza grid de ícones
+  const grid = document.getElementById('iconGrid');
+  grid.innerHTML = ICONES_CATEGORIA.map(ic => `<div class="icon-opt ${ic===inpIcone.value?'sel':''}" data-ic="${ic}">${ic}</div>`).join('');
+  grid.querySelectorAll('.icon-opt').forEach(el => {
+    el.onclick = () => {
+      grid.querySelectorAll('.icon-opt').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+      inpIcone.value = el.dataset.ic;
+    };
+  });
+
+  document.getElementById('modalCategoria').classList.remove('hidden');
+}
+
+function bindModalCategoria(){
+  const btnNova = document.getElementById('btnNovaCategoria');
+  if(btnNova) btnNova.onclick = () => abreModalCategoria(null);
+
+  document.getElementById('btnSalvarCategoria').onclick = async () => {
+    const nome = document.getElementById('catNome').value.trim();
+    const tetoStr = document.getElementById('catTeto').value.replace(',', '.');
+    const teto = parseFloat(tetoStr) || 0;
+    const icone = document.getElementById('catIcone').value;
+    if(!nome){ toast('Digite o nome'); return; }
+    if(editandoCategoria){
+      await atualizaCategoria(editandoCategoria, { nome, teto, icone });
+      toast('Categoria atualizada');
+    } else {
+      // id derivado do nome
+      const id = normaliza(nome).replace(/[^a-z0-9]/g,'').slice(0,30) || ('cat' + Date.now());
+      await criaCategoria({ id, nome, icone, teto });
+      toast('Categoria criada');
+    }
+    fechaModais();
+  };
+
+  document.getElementById('btnDeletarCategoria').onclick = async () => {
+    if(!editandoCategoria) return;
+    const cat = state.categorias.find(c => c.id === editandoCategoria);
+    if(!cat) return;
+    if(cat.id === 'outros'){ toast('A categoria Outros não pode ser excluída'); return; }
+    const qtd = await contaLancamentosDaCategoria(editandoCategoria);
+    if(qtd === 0){
+      // sem lançamentos: deleta direto
+      await deletaCategoriaCompleto(editandoCategoria, 'moveOutros');
+      fechaModais();
+      toast('Categoria excluída');
+    } else {
+      // tem lançamentos: pergunta o que fazer
+      document.getElementById('delCatTexto').innerHTML = `A categoria <strong>${cat.nome}</strong> tem <strong>${qtd}</strong> lançamento${qtd>1?'s':''}. O que fazer com ${qtd>1?'eles':'ele'}?`;
+      document.getElementById('modalCategoria').classList.add('hidden');
+      document.getElementById('modalDeletarCat').classList.remove('hidden');
+    }
+  };
+
+  document.getElementById('btnDelMoveOutros').onclick = async () => {
+    await deletaCategoriaCompleto(editandoCategoria, 'moveOutros');
+    fechaModais();
+    toast('Categoria excluída, lançamentos movidos pra Outros');
+  };
+  document.getElementById('btnDelTudo').onclick = async () => {
+    await deletaCategoriaCompleto(editandoCategoria, 'deletaTudo');
+    fechaModais();
+    toast('Categoria e lançamentos excluídos');
+  };
+}
+
+function bindModalNovoAtivo(){
+  const btn = document.getElementById('btnNovoAtivo');
+  if(!btn) return;
+  btn.onclick = () => abreModalNovoAtivo();
+
+  const quadSel = document.getElementById('novoAtivoQuad');
+  if(quadSel){
+    quadSel.onchange = () => {
+      document.getElementById('checkCripto').style.display = quadSel.value === 'internacional' ? 'flex' : 'none';
+    };
+  }
+
+  document.getElementById('btnSalvarNovoAtivo').onclick = async () => {
+    const quad = document.getElementById('novoAtivoQuad').value;
+    const nome = document.getElementById('novoAtivoNome').value.trim();
+    const valor = parseFloat(document.getElementById('novoAtivoValor').value.replace(',', '.'));
+    const cripto = document.getElementById('novoAtivoCripto').checked;
+    if(!nome){ toast('Nome do ativo'); return; }
+    if(!valor || valor < 0){ toast('Valor inválido'); return; }
+    const ativo = { nome, valor };
+    if(quad === 'internacional' && cripto) ativo.cripto = true;
+    await adicionaAtivo(quad, ativo);
+    fechaModais();
+    toast('Ativo adicionado');
+  };
+}
+
+function abreModalNovoAtivo(){
+  document.getElementById('novoAtivoQuad').value = 'rendaFixa';
+  document.getElementById('novoAtivoNome').value = '';
+  document.getElementById('novoAtivoValor').value = '';
+  document.getElementById('novoAtivoCripto').checked = false;
+  document.getElementById('checkCripto').style.display = 'none';
+  document.getElementById('modalNovoAtivo').classList.remove('hidden');
+}
+
+// Long-press em ativo pra deletar
+function setupLongPressAtivos(){
+  document.querySelectorAll('.ativo').forEach(el => {
+    let timer = null;
+    let pressed = false;
+    const start = () => {
+      pressed = false;
+      timer = setTimeout(() => {
+        pressed = true;
+        const q = el.dataset.quad;
+        const idx = parseInt(el.dataset.idx);
+        const ativo = state.investimentos[q][idx];
+        if(confirm(`Excluir ${ativo.nome} (${fmt(ativo.valor)})?`)){
+          deletaAtivo(q, idx).then(() => toast('Ativo excluído'));
+        }
+      }, 600);
+    };
+    const cancel = () => { if(timer) clearTimeout(timer); };
+    el.addEventListener('touchstart', start);
+    el.addEventListener('touchend', cancel);
+    el.addEventListener('touchmove', cancel);
+    el.addEventListener('mousedown', start);
+    el.addEventListener('mouseup', cancel);
+    el.addEventListener('mouseleave', cancel);
+  });
+}
+
+function abreModalCofre(cofreId){
+  editandoCofre = cofreId;
+  const titulo = document.getElementById('cofreModalTitle');
+  const btnDel = document.getElementById('btnDeletarCofre');
+  const inpNome = document.getElementById('cofreNome');
+  const inpMeta = document.getElementById('cofreMeta');
+  const inpAtual = document.getElementById('cofreAtual');
+  const inpMes = document.getElementById('cofreMesAlvo');
+  const inpIcone = document.getElementById('cofreIcone');
+
+  // popula select de meses se ainda não foi
+  if(inpMes.options.length === 0){
+    inpMes.innerHTML = MESES_NOMES.map((m,i) => `<option value="${i+1}">${m}</option>`).join('');
+  }
+
+  if(cofreId){
+    const c = state.cofres.find(x => x.id === cofreId);
+    titulo.textContent = `Editar: ${c.nome}`;
+    inpNome.value = c.nome;
+    inpMeta.value = (c.meta||0).toString().replace('.', ',');
+    inpAtual.value = (c.atual||0).toString().replace('.', ',');
+    inpMes.value = c.mesAlvo || 1;
+    inpIcone.value = c.icone || '🏛️';
+    btnDel.classList.remove('hidden');
+  } else {
+    titulo.textContent = 'Novo cofre';
+    inpNome.value = '';
+    inpMeta.value = '';
+    inpAtual.value = '0';
+    inpMes.value = 1;
+    inpIcone.value = '🏛️';
+    btnDel.classList.add('hidden');
+  }
+
+  // grid de ícones
+  const grid = document.getElementById('cofreIconGrid');
+  grid.innerHTML = COFRES_ICONES.map(ic => `<div class="icon-opt ${ic===inpIcone.value?'sel':''}" data-ic="${ic}">${ic}</div>`).join('');
+  grid.querySelectorAll('.icon-opt').forEach(el => {
+    el.onclick = () => {
+      grid.querySelectorAll('.icon-opt').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+      inpIcone.value = el.dataset.ic;
+    };
+  });
+
+  document.getElementById('modalCofre').classList.remove('hidden');
+}
+
+function bindModalCofre(){
+  const btnNovo = document.getElementById('btnAddCofre');
+  if(btnNovo) btnNovo.onclick = () => abreModalCofre(null);
+
+  document.getElementById('btnSalvarCofre').onclick = async () => {
+    const nome = document.getElementById('cofreNome').value.trim();
+    const meta = parseFloat(document.getElementById('cofreMeta').value.replace(',', '.')) || 0;
+    const atual = parseFloat(document.getElementById('cofreAtual').value.replace(',', '.')) || 0;
+    const mesAlvo = parseInt(document.getElementById('cofreMesAlvo').value);
+    const icone = document.getElementById('cofreIcone').value;
+    if(!nome){ toast('Digite o nome'); return; }
+    if(meta <= 0){ toast('Meta deve ser maior que zero'); return; }
+    if(editandoCofre){
+      await atualizaCofre(editandoCofre, { nome, meta, atual, mesAlvo, icone });
+      toast('Cofre atualizado');
+    } else {
+      await criaCofre({ nome, meta, atual, mesAlvo, icone });
+      toast('Cofre criado');
+    }
+    fechaModais();
+  };
+
+  document.getElementById('btnDeletarCofre').onclick = async () => {
+    if(!editandoCofre) return;
+    if(confirm('Excluir esse cofre?')){
+      await deletaCofre(editandoCofre);
+      fechaModais();
+      toast('Cofre excluído');
+    }
+  };
+}
+
+// ============================================================
 // BOOTSTRAP
 // ============================================================
 async function init(){
@@ -1403,12 +1904,16 @@ async function init(){
     bindModalAtivo();
     bindProjecaoSliders();
     bindPdfUpload();
+    bindModalCategoria();
+    bindModalNovoAtivo();
+    bindModalCofre();
 
     await semeaSeNecessario();
     escutaCategorias();
     escutaLancamentos();
     escutaEstabelecimentos();
     escutaInvestimentos();
+    escutaCofres();
   } catch(err){
     console.error('Erro init:', err);
     markSync('err');
