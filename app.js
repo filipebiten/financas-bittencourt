@@ -39,6 +39,46 @@ const HIST_MESES_LBL = {
 let histCategoriaAtiva = 'total'; // 'total' ou id de categoria
 
 // ============================================================
+// INVESTIMENTOS — estrutura ARCA + Grão
+// Semente da carteira do Filipe (atualizada 06/05/2026)
+// ============================================================
+const QUAD_INFO = {
+  rendaFixa:     { nome: 'Renda Fixa',    cor: '#7c6da8', sq: '🟣' },
+  acoesBR:       { nome: 'Ações BR',      cor: '#c4622d', sq: '🟠' },
+  fiis:          { nome: 'FIIs',          cor: '#5a7355', sq: '🟢' },
+  internacional: { nome: 'Internacional', cor: '#9c3a2a', sq: '🔴' },
+};
+
+const INVEST_SEMENTE = {
+  rendaFixa: [
+    { nome:'Tesouro Selic 2029', valor:377.05 },
+    { nome:'NTN-B1 Renda+ 2065', valor:331.10 },
+    { nome:'Tesouro Selic 2028', valor:189.17 },
+    { nome:'Prefixado 2028',     valor:112.78 },
+  ],
+  acoesBR: [
+    { nome:'BBDC4', valor:429.66 },
+    { nome:'SOJA3', valor:281.49 },
+    { nome:'CMIG4', valor:170.52 },
+  ],
+  fiis: [
+    { nome:'XPML11',  valor:332.76 },
+    { nome:'FIGS11',  valor:306.88 },
+    { nome:'BTHF11',  valor:215.28 },
+  ],
+  internacional: [
+    { nome:'Rico Bitcoin Dólar FIM', valor:844.30, cripto:true },
+    { nome:'VCLT (Nomad)',           valor:369.08 },
+    { nome:'Bitcoin direto (Rico)',  valor:161.16, cripto:true },
+    { nome:'Bitcoin (Bitybank)',     valor:146.94, cripto:true },
+    { nome:'NVDC34 (BDR NVIDIA)',    valor:40.92 },
+  ],
+};
+const GRAO_SEMENTE = { valor:3429.84, rendimento:429.84 };
+
+let editandoAtivo = null; // {quad, idx}
+
+// ============================================================
 // DADOS SEMENTE — extraídos do histórico do Filipe nesse chat
 // ============================================================
 
@@ -173,6 +213,8 @@ let state = {
   categorias: [],
   lancamentos: [],
   estabelecimentos: {},  // texto digitado -> categoriaId
+  investimentos: null,   // {rendaFixa, acoesBR, fiis, internacional}
+  grao: null,            // {valor, rendimento}
   mes: new Date().getMonth(),
   ano: new Date().getFullYear(),
 };
@@ -235,6 +277,17 @@ async function semeaSeNecessario(){
     await batch.commit();
     toast('Bem-vindo! Categorias iniciais criadas.');
   }
+
+  // Semear investimentos
+  const invRef = doc(db, 'investimentos', 'carteira');
+  const invSnap = await getDoc(invRef);
+  if(!invSnap.exists()){
+    await setDoc(invRef, {
+      arca: INVEST_SEMENTE,
+      grao: GRAO_SEMENTE,
+      atualizado: '2026-05-06'
+    });
+  }
 }
 
 async function escutaCategorias(){
@@ -271,6 +324,33 @@ async function escutaEstabelecimentos(){
     snap.docs.forEach(d => {
       state.estabelecimentos[d.id] = d.data().categoriaId;
     });
+  });
+}
+
+async function escutaInvestimentos(){
+  onSnapshot(doc(db, 'investimentos', 'carteira'), (snap) => {
+    if(snap.exists()){
+      const d = snap.data();
+      state.investimentos = d.arca;
+      state.grao = d.grao;
+      render();
+    }
+  });
+}
+
+async function atualizaAtivo(quad, idx, novoValor){
+  const inv = JSON.parse(JSON.stringify(state.investimentos));
+  inv[quad][idx].valor = novoValor;
+  await updateDoc(doc(db, 'investimentos', 'carteira'), {
+    arca: inv,
+    atualizado: new Date().toISOString().split('T')[0]
+  });
+}
+
+async function atualizaGrao(novoValor){
+  await updateDoc(doc(db, 'investimentos', 'carteira'), {
+    'grao.valor': novoValor,
+    atualizado: new Date().toISOString().split('T')[0]
   });
 }
 
@@ -311,6 +391,7 @@ function render(){
   renderHeader();
   renderHoje();
   renderHistorico();
+  renderInvestimentos();
   renderCategorias();
   renderLancamentos();
   renderFuturo();
@@ -511,6 +592,170 @@ function renderHistorico(){
   }
 }
 
+function renderInvestimentos(){
+  if(!state.investimentos) return;
+  const inv = state.investimentos;
+
+  // totais por quadrante
+  const totais = {};
+  let totalArca = 0;
+  for(const q of Object.keys(QUAD_INFO)){
+    totais[q] = (inv[q]||[]).reduce((a,x)=>a+(x.valor||0),0);
+    totalArca += totais[q];
+  }
+  const grao = state.grao ? state.grao.valor : 0;
+  const patrimonio = totalArca + grao;
+
+  // patrimônio
+  setTxt('patrimTotal', fmt(patrimonio));
+  setTxt('patrimArca', fmt(totalArca));
+  setTxt('patrimGrao', fmt(grao));
+  setTxt('arcaTotal', fmt(totalArca));
+
+  // donut SVG
+  const donut = document.getElementById('arcaDonut');
+  if(donut && totalArca > 0){
+    const cx=100, cy=100, r=72, sw=26;
+    let ang = -90;
+    let paths = '';
+    for(const q of Object.keys(QUAD_INFO)){
+      const frac = totais[q]/totalArca;
+      const sweep = frac * 360;
+      const a1 = ang * Math.PI/180;
+      const a2 = (ang+sweep) * Math.PI/180;
+      const x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+      const x2 = cx + r*Math.cos(a2), y2 = cy + r*Math.sin(a2);
+      const large = sweep > 180 ? 1 : 0;
+      paths += `<path d="M${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)}" fill="none" stroke="${QUAD_INFO[q].cor}" stroke-width="${sw}"/>`;
+      ang += sweep;
+    }
+    // marca dos 25% (linha de alvo em cada quarto) — sutil
+    donut.innerHTML = paths;
+  }
+
+  // lista quadrantes
+  const alvo = totalArca/4;
+  const ql = document.getElementById('quadList');
+  if(ql){
+    ql.innerHTML = Object.keys(QUAD_INFO).map(q => {
+      const v = totais[q];
+      const pct = totalArca ? (v/totalArca*100) : 0;
+      const info = QUAD_INFO[q];
+      const desvio = v - alvo;
+      const acima = desvio > 0;
+      return `
+        <div class="quad">
+          <div class="quad-top">
+            <span class="quad-name"><span class="quad-sq" style="background:${info.cor}"></span>${info.nome}</span>
+            <span class="quad-pct" style="color:${info.cor}">${pct.toFixed(1)}%</span>
+          </div>
+          <div class="quad-bar">
+            <div class="quad-bar-fill" style="width:${Math.min(100,pct)}%;background:${info.cor}"></div>
+            <div class="quad-bar-target"></div>
+          </div>
+          <div class="quad-foot">
+            <span class="v">${fmt(v)}</span>
+            <span>${acima ? 'acima' : 'abaixo'} do alvo · ${acima?'+':'−'}${fmt(Math.abs(desvio))}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // recomendação de aporte: quadrante mais abaixo do alvo
+  let menorQ = null, menorPct = Infinity;
+  for(const q of Object.keys(QUAD_INFO)){
+    const pct = totalArca ? totais[q]/totalArca : 0;
+    if(pct < menorPct){ menorPct = pct; menorQ = q; }
+  }
+  const reco = document.getElementById('recoAporte');
+  if(reco && menorQ){
+    reco.innerHTML = `
+      <div class="reco-mark">➜</div>
+      <div>
+        <div class="reco-title">Próximo aporte: ${QUAD_INFO[menorQ].nome}</div>
+        <div class="reco-text">É o quadrante mais distante dos 25% (${(menorPct*100).toFixed(1)}%). Pela lógica ARCA, o dinheiro novo vai pra cá. Dentro dele, compre o ativo que mais caiu entre os fundamentalmente bons.</div>
+      </div>
+    `;
+  }
+
+  // alerta concentração BTC
+  const cripto = (inv.internacional||[]).filter(x=>x.cripto).reduce((a,x)=>a+x.valor,0);
+  const totalInt = totais.internacional;
+  const alertEl = document.getElementById('alertBtc');
+  if(alertEl && totalInt > 0){
+    const pctCripto = cripto/totalInt*100;
+    if(pctCripto > 50){
+      alertEl.style.display = 'flex';
+      alertEl.innerHTML = `
+        <div class="alert-btc-mark">!</div>
+        <div>
+          <div class="alert-btc-title">Bitcoin é ${pctCripto.toFixed(0)}% do Internacional</div>
+          <div class="alert-btc-text">${fmt(cripto)} de ${fmt(totalInt)} em cripto. Concentração alta — o VCLT na Nomad ajuda a diluir. Considere reforçar renda fixa internacional nos próximos aportes ao quadrante.</div>
+        </div>
+      `;
+    } else {
+      alertEl.style.display = 'none';
+    }
+  }
+
+  // lista de ativos editáveis
+  const al = document.getElementById('ativosList');
+  if(al){
+    let html = '';
+    for(const q of Object.keys(QUAD_INFO)){
+      (inv[q]||[]).forEach((ativo, idx) => {
+        html += `
+          <div class="ativo" data-quad="${q}" data-idx="${idx}">
+            <div class="ativo-left">
+              <span class="ativo-sq" style="background:${QUAD_INFO[q].cor}"></span>
+              <span class="ativo-nome">${ativo.nome}</span>
+            </div>
+            <span class="ativo-val">${fmt(ativo.valor)}</span>
+          </div>
+        `;
+      });
+    }
+    al.innerHTML = html;
+    al.querySelectorAll('.ativo').forEach(el => {
+      el.onclick = () => abreModalAtivo(el.dataset.quad, parseInt(el.dataset.idx));
+    });
+  }
+
+  // Grão
+  const gc = document.getElementById('graoCard');
+  if(gc && state.grao){
+    gc.innerHTML = `
+      <div class="grao-lbl">Posição atual</div>
+      <div class="grao-pos">${fmt(state.grao.valor)}</div>
+      <div class="grao-rend">+ ${fmt(state.grao.rendimento||0)} de rendimento</div>
+      <button class="grao-edit-btn" id="btnEditGrao">Atualizar posição</button>
+    `;
+    const btn = document.getElementById('btnEditGrao');
+    if(btn) btn.onclick = abreModalGrao;
+  }
+}
+
+function setTxt(id, txt){
+  const el = document.getElementById(id);
+  if(el) el.textContent = txt;
+}
+
+function abreModalAtivo(quad, idx){
+  editandoAtivo = {quad, idx, tipo:'ativo'};
+  const ativo = state.investimentos[quad][idx];
+  document.getElementById('ativoNome').textContent = ativo.nome;
+  document.getElementById('ativoValor').value = ativo.valor.toString().replace('.', ',');
+  document.getElementById('modalAtivo').classList.remove('hidden');
+}
+
+function abreModalGrao(){
+  editandoAtivo = {tipo:'grao'};
+  document.getElementById('ativoNome').textContent = 'Grão · Previdência';
+  document.getElementById('ativoValor').value = state.grao.valor.toString().replace('.', ',');
+  document.getElementById('modalAtivo').classList.remove('hidden');
+}
+
 function renderCategorias(){
   const tetoTotal = state.categorias.reduce((acc,c) => acc + (c.teto||0), 0);
   document.getElementById('totalTetos').textContent = fmt(tetoTotal);
@@ -585,7 +830,64 @@ function renderLancamentos(){
 function renderFuturo(){
   const tetoTotal = state.categorias.reduce((acc,c) => acc + (c.teto||0), 0);
   const folga = 7804.93 - tetoTotal;
-  document.getElementById('projFolga').textContent = `${fmt(folga*12)} / ano de folga`;
+  setTxt('projFolga', `${fmt(folga*12)} / ano de folga`);
+
+  renderProjecaoInvest();
+}
+
+function renderProjecaoInvest(){
+  // patrimônio ARCA atual
+  let totalArca = 0;
+  if(state.investimentos){
+    for(const q of Object.keys(QUAD_INFO)){
+      totalArca += (state.investimentos[q]||[]).reduce((a,x)=>a+(x.valor||0),0);
+    }
+  }
+  const grao = state.grao ? state.grao.valor : 0;
+
+  const aporteEl = document.getElementById('aporteSlider');
+  const rendEl = document.getElementById('rendSlider');
+  if(!aporteEl || !rendEl) return;
+
+  const aporte = parseFloat(aporteEl.value);
+  const rendAnual = parseFloat(rendEl.value)/100;
+  const rendMensal = Math.pow(1+rendAnual, 1/12) - 1;
+
+  setTxt('aporteVal', fmt(aporte));
+  setTxt('rendVal', rendEl.value + '%');
+
+  // projeção composta: FV = P*(1+i)^n + PMT*[((1+i)^n - 1)/i]
+  function projeta(principal, pmt, meses){
+    const i = rendMensal;
+    if(i === 0) return principal + pmt*meses;
+    return principal*Math.pow(1+i,meses) + pmt*((Math.pow(1+i,meses)-1)/i);
+  }
+
+  const horizontes = [
+    {lbl:'Em 1 ano',  meses:12},
+    {lbl:'Em 5 anos', meses:60},
+    {lbl:'Em 10 anos',meses:120},
+  ];
+
+  const res = document.getElementById('projResult');
+  if(res){
+    res.innerHTML = horizontes.map(h => {
+      const arcaFut = projeta(totalArca, aporte, h.meses);
+      return `
+        <div class="proj-row">
+          <div class="proj-row-lbl"><strong>${h.lbl}</strong>ARCA com aporte de ${fmt(aporte)}/mês</div>
+          <div class="proj-row-val">${fmt(arcaFut)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+function bindProjecaoSliders(){
+  const a = document.getElementById('aporteSlider');
+  const r = document.getElementById('rendSlider');
+  if(a) a.addEventListener('input', renderProjecaoInvest);
+  if(r) r.addEventListener('input', renderProjecaoInvest);
 }
 
 // ============================================================
@@ -713,6 +1015,22 @@ function abreModalTeto(cat){
   };
 }
 
+function bindModalAtivo(){
+  const btn = document.getElementById('btnSalvarAtivo');
+  if(!btn) return;
+  btn.onclick = async () => {
+    const novo = parseFloat(document.getElementById('ativoValor').value.replace(',', '.'));
+    if(isNaN(novo) || novo < 0){ toast('Valor inválido'); return; }
+    if(editandoAtivo.tipo === 'grao'){
+      await atualizaGrao(novo);
+    } else {
+      await atualizaAtivo(editandoAtivo.quad, editandoAtivo.idx, novo);
+    }
+    fechaModais();
+    toast('Atualizado');
+  };
+}
+
 // ============================================================
 // SYNC STATUS
 // ============================================================
@@ -747,11 +1065,14 @@ async function init(){
     bindTabs();
     bindFab();
     bindModais();
+    bindModalAtivo();
+    bindProjecaoSliders();
 
     await semeaSeNecessario();
     escutaCategorias();
     escutaLancamentos();
     escutaEstabelecimentos();
+    escutaInvestimentos();
   } catch(err){
     console.error('Erro init:', err);
     markSync('err');
