@@ -114,11 +114,27 @@ const ESTABS_SEMENTE = {
   'mais q pao': 'alimentacao',
   'evm alimentos': 'alimentacao',
   'mercado': 'alimentacao',
+  'supermercado': 'alimentacao',
+  'feira': 'alimentacao',
+  'padaria': 'alimentacao',
+  'açougue': 'alimentacao',
+  'acougue': 'alimentacao',
 
   // Restaurante / Delivery
   'prime churrascaria': 'restaurante',
   'ifd': 'restaurante',
   'ifood': 'restaurante',
+  'restaurante': 'restaurante',
+  'almoço': 'restaurante',
+  'almoco': 'restaurante',
+  'janta': 'restaurante',
+  'jantar': 'restaurante',
+  'lanche': 'restaurante',
+  'pizza': 'restaurante',
+  'sorvete': 'restaurante',
+  'japa': 'restaurante',
+  'sushi': 'restaurante',
+  'hamburguer': 'restaurante',
   'fornalha': 'restaurante',
   'pizza do bigode': 'restaurante',
   'vermelho beef': 'restaurante',
@@ -142,6 +158,11 @@ const ESTABS_SEMENTE = {
   'petroleo sao jose': 'transporte',
   'autopostosaojose': 'transporte',
   'auto posto': 'transporte',
+  'posto': 'transporte',
+  'gasolina': 'transporte',
+  'combustivel': 'transporte',
+  'estacionamento': 'transporte',
+  'pedagio': 'transporte',
   'rede faleiros': 'transporte',
   'uber': 'transporte',
   'campo grande parking': 'transporte',
@@ -152,6 +173,13 @@ const ESTABS_SEMENTE = {
   'unimed': 'saude',
   'oticas carol': 'saude',
   'saude livre': 'saude',
+  'farmacia': 'saude',
+  'farmácia': 'saude',
+  'remedio': 'saude',
+  'remédio': 'saude',
+  'medico': 'saude',
+  'médico': 'saude',
+  'dentista': 'saude',
 
   // Pessoal
   'seu botelho': 'pessoalfilipe',
@@ -354,16 +382,44 @@ async function atualizaGrao(novoValor){
   });
 }
 
-async function novoLancamento(valor, descricao, categoriaId, dataIso){
-  const data = dataIso ? new Date(dataIso + 'T12:00:00') : new Date();
-  await addDoc(collection(db, 'lancamentos'), {
-    valor: valor,
-    descricao: descricao,
-    categoriaId: categoriaId,
-    ts: data.getTime(),
-    data: data.toISOString(),
-    criadoEm: Date.now(),
-  });
+async function novoLancamento(valor, descricao, categoriaId, dataIso, parcelas){
+  const dataBase = dataIso ? new Date(dataIso + 'T12:00:00') : new Date();
+  parcelas = parcelas || 1;
+
+  if(parcelas <= 1){
+    await addDoc(collection(db, 'lancamentos'), {
+      valor: valor,
+      descricao: descricao,
+      categoriaId: categoriaId,
+      ts: dataBase.getTime(),
+      data: dataBase.toISOString(),
+      criadoEm: Date.now(),
+    });
+    return;
+  }
+
+  // Regime de caixa: divide o valor em N parcelas, uma por mês
+  const valorParcela = Math.round((valor / parcelas) * 100) / 100;
+  const grupoId = 'p' + Date.now(); // agrupa as parcelas
+  const batch = writeBatch(db);
+
+  for(let i = 0; i < parcelas; i++){
+    const dataParc = new Date(dataBase);
+    dataParc.setMonth(dataParc.getMonth() + i);
+    const ref = doc(collection(db, 'lancamentos'));
+    batch.set(ref, {
+      valor: valorParcela,
+      descricao: `${descricao} (${i+1}/${parcelas})`,
+      categoriaId: categoriaId,
+      ts: dataParc.getTime(),
+      data: dataParc.toISOString(),
+      criadoEm: Date.now(),
+      parcelaGrupo: grupoId,
+      parcelaNum: i+1,
+      parcelaTotal: parcelas,
+    });
+  }
+  await batch.commit();
 }
 
 async function salvaEstabelecimento(descricao, categoriaId){
@@ -549,6 +605,20 @@ function renderHistorico(){
     chips.querySelectorAll('.chip').forEach(ch => {
       ch.onclick = () => { histCategoriaAtiva = ch.dataset.cat; renderHistorico(); };
     });
+  }
+
+  // seletor de mês + detalhamento
+  const mesSel = document.getElementById('mesSelect');
+  if(mesSel && state.categorias.length){
+    if(!mesSel.dataset.populated){
+      mesSel.innerHTML = meses.slice().reverse().map(m => {
+        const [a,mm] = m.split('-');
+        return `<option value="${m}">${MESES_NOMES[parseInt(mm)-1]} · ${a}</option>`;
+      }).join('');
+      mesSel.dataset.populated = '1';
+      mesSel.onchange = () => renderMesDetalhe(mesSel.value);
+    }
+    renderMesDetalhe(mesSel.value || meses[meses.length-1]);
   }
 
   // comparativo: média 12m vs teto
@@ -756,6 +826,34 @@ function abreModalGrao(){
   document.getElementById('modalAtivo').classList.remove('hidden');
 }
 
+function renderMesDetalhe(mesKey){
+  const det = document.getElementById('mesDetalhe');
+  if(!det || !HISTORICO_MENSAL[mesKey]) return;
+  const dados = HISTORICO_MENSAL[mesKey];
+  const total = Object.values(dados).reduce((a,b)=>a+b,0);
+
+  // ordena categorias por valor desc
+  const linhas = Object.entries(dados)
+    .map(([catId, val]) => {
+      const cat = state.categorias.find(c => c.id === catId);
+      return { nome: cat ? `${cat.icone||''} ${cat.nome}` : catId, val };
+    })
+    .filter(x => x.val > 0)
+    .sort((a,b) => b.val - a.val);
+
+  det.innerHTML = linhas.map(l => `
+    <div class="mes-cat">
+      <span class="mes-cat-name">${l.nome}</span>
+      <span class="mes-cat-val">${fmt(l.val)}</span>
+    </div>
+  `).join('') + `
+    <div class="mes-cat mes-cat-total">
+      <span class="mes-cat-name">Total do mês</span>
+      <span class="mes-cat-val">${fmt(total)}</span>
+    </div>
+  `;
+}
+
 function renderCategorias(){
   const tetoTotal = state.categorias.reduce((acc,c) => acc + (c.teto||0), 0);
   document.getElementById('totalTetos').textContent = fmt(tetoTotal);
@@ -914,6 +1012,8 @@ function abreModalAdd(){
   document.getElementById('inpValor').value = '';
   document.getElementById('inpDesc').value = '';
   document.getElementById('autoCat').textContent = '';
+  document.getElementById('inpParcelas').value = '1';
+  document.getElementById('parcelaTip').textContent = '';
   // data padrão = hoje
   const hoje = new Date().toISOString().split('T')[0];
   document.getElementById('inpData').value = hoje;
@@ -945,22 +1045,23 @@ function bindModais(){
     }
   });
 
-  // máscara monetária leve
+  // máscara monetária leve + atualizar dica de parcela
   document.getElementById('inpValor').addEventListener('input', e => {
     let v = e.target.value.replace(/[^\d,]/g, '');
     e.target.value = v;
+    atualizaParcelaTip();
   });
+  document.getElementById('inpParcelas').addEventListener('change', atualizaParcelaTip);
 
-  document.getElementById('micHint').onclick = () => {
-    toast('Toque no campo descrição e use o microfone do teclado');
-    document.getElementById('inpDesc').focus();
-  };
+  // BOTÃO DE VOZ — Web Speech API com fallback pro teclado (iOS)
+  document.getElementById('voiceBtn').onclick = iniciaVoz;
 
   document.getElementById('btnSalvar').onclick = async () => {
     const valor = parseFloat(document.getElementById('inpValor').value.replace(',', '.'));
     const desc = document.getElementById('inpDesc').value.trim();
     const cat = document.getElementById('inpCat').value;
     const data = document.getElementById('inpData').value;
+    const parcelas = parseInt(document.getElementById('inpParcelas').value) || 1;
 
     if(!valor || valor <= 0){
       toast('Informe um valor válido');
@@ -974,7 +1075,6 @@ function bindModais(){
     // verificar se é estabelecimento desconhecido
     const detectado = detectaCategoria(desc);
     if(!detectado && !state.estabelecimentos[normaliza(desc).slice(0,60)]){
-      // abrir modal de aprendizado
       document.getElementById('aprendeEstab').textContent = `"${desc}"`;
       document.getElementById('aprendeCat').value = cat;
       document.getElementById('modalAdd').classList.add('hidden');
@@ -986,17 +1086,128 @@ function bindModais(){
         if(lembrar){
           await salvaEstabelecimento(desc, catEscolhida);
         }
-        await novoLancamento(valor, desc, catEscolhida, data);
+        await novoLancamento(valor, desc, catEscolhida, data, parcelas);
         fechaModais();
-        toast('Lançamento salvo');
+        toast(parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo');
       };
       return;
     }
 
-    await novoLancamento(valor, desc, cat, data);
+    await novoLancamento(valor, desc, cat, data, parcelas);
     fechaModais();
-    toast('Lançamento salvo');
+    toast(parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo');
   };
+}
+
+function atualizaParcelaTip(){
+  const valor = parseFloat((document.getElementById('inpValor').value||'').replace(',', '.'));
+  const parcelas = parseInt(document.getElementById('inpParcelas').value) || 1;
+  const tip = document.getElementById('parcelaTip');
+  if(parcelas > 1 && valor > 0){
+    const p = (valor/parcelas);
+    tip.textContent = `${parcelas}x de ${fmt(p)} — uma em cada mês, a partir da data escolhida`;
+  } else {
+    tip.textContent = '';
+  }
+}
+
+// ============================================================
+// VOZ — Web Speech API com fallback pro teclado (iOS)
+// ============================================================
+function iniciaVoz(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = document.getElementById('voiceBtn');
+  const txt = document.getElementById('voiceTxt');
+
+  if(!SR){
+    // Fallback (iPhone/Safari): foca no campo e abre teclado pra microfone nativo
+    toast('Use o 🎙 do teclado pra ditar');
+    document.getElementById('inpDesc').focus();
+    return;
+  }
+
+  try {
+    const rec = new SR();
+    rec.lang = 'pt-BR';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+
+    btn.classList.add('listening');
+    txt.textContent = 'Ouvindo… fale agora';
+
+    rec.onresult = (e) => {
+      const fala = e.results[0][0].transcript;
+      interpretaFala(fala);
+    };
+    rec.onerror = () => {
+      // se falhar (comum no iOS), cai no teclado
+      btn.classList.remove('listening');
+      txt.textContent = 'Tocar e falar o gasto';
+      toast('Use o 🎙 do teclado pra ditar');
+      document.getElementById('inpDesc').focus();
+    };
+    rec.onend = () => {
+      btn.classList.remove('listening');
+      txt.textContent = 'Tocar e falar o gasto';
+    };
+
+    rec.start();
+  } catch(err){
+    toast('Use o 🎙 do teclado pra ditar');
+    document.getElementById('inpDesc').focus();
+  }
+}
+
+// Interpreta fala informal: extrai valor + descrição/categoria
+function interpretaFala(fala){
+  const f = fala.toLowerCase();
+
+  // 1. extrair valor — primeiro tenta número direto "80", "150", "1.200"
+  let valor = null;
+  const numMatch = f.match(/(\d+(?:[.,]\d{1,2})?)/);
+  if(numMatch){
+    valor = parseFloat(numMatch[1].replace('.', '').replace(',', '.'));
+  } else {
+    // tenta número por extenso simples
+    valor = extensoParaNumero(f);
+  }
+
+  // 2. descrição = a fala inteira (limpa palavras de comando)
+  let desc = fala
+    .replace(/\b(gastei|paguei|comprei|foi|de|no|na|em|uns|um|uma|reais|real|r\$)\b/gi, ' ')
+    .replace(/\d+(?:[.,]\d{1,2})?/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if(!desc) desc = fala.trim();
+
+  // preenche os campos
+  if(valor && valor > 0){
+    document.getElementById('inpValor').value = valor.toString().replace('.', ',');
+  }
+  document.getElementById('inpDesc').value = desc.charAt(0).toUpperCase() + desc.slice(1);
+
+  // dispara detecção de categoria
+  document.getElementById('inpDesc').dispatchEvent(new Event('input'));
+  atualizaParcelaTip();
+
+  toast('Confira e ajuste se precisar');
+}
+
+function extensoParaNumero(txt){
+  // cobre casos simples: "cento e vinte", "oitenta", "cinquenta"
+  const mapa = {
+    'cem':100,'cento':100,'duzentos':200,'trezentos':300,'quatrocentos':400,'quinhentos':500,
+    'dez':10,'vinte':20,'trinta':30,'quarenta':40,'cinquenta':50,'sessenta':60,'setenta':70,'oitenta':80,'noventa':90,
+    'um':1,'dois':2,'tres':3,'três':3,'quatro':4,'cinco':5,'seis':6,'sete':7,'oito':8,'nove':9,
+    'mil':1000
+  };
+  let total = 0, achou = false;
+  const palavras = txt.split(/\s+|\be\b/);
+  for(const p of palavras){
+    if(mapa[p] !== undefined){ total += mapa[p]; achou = true; }
+  }
+  return achou ? total : null;
 }
 
 function abreModalTeto(cat){
@@ -1056,6 +1267,130 @@ function toast(msg){
 }
 
 // ============================================================
+// UPLOAD E PARSING DE PDF (extrato/fatura) — client-side
+// ============================================================
+let pdfLancamentosPendentes = [];
+
+function bindPdfUpload(){
+  const inp = document.getElementById('pdfInput');
+  if(!inp) return;
+  inp.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const status = document.getElementById('pdfStatus');
+    status.innerHTML = 'Lendo PDF…';
+
+    if(!window.pdfjsLib){
+      status.innerHTML = '<span class="err">Biblioteca de PDF não carregou. Tente recarregar o app.</span>';
+      return;
+    }
+
+    try {
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+      let texto = '';
+      for(let i=1; i<=pdf.numPages; i++){
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        texto += content.items.map(it => it.str).join(' ') + '\n';
+      }
+      const lancs = extraiLancamentosDePdf(texto);
+      if(lancs.length === 0){
+        status.innerHTML = '<span class="err">Não encontrei lançamentos reconhecíveis neste PDF. Você pode adicionar manualmente.</span>';
+        return;
+      }
+      pdfLancamentosPendentes = lancs;
+      mostraRevisaoPdf(lancs);
+    } catch(err){
+      console.error(err);
+      status.innerHTML = '<span class="err">Erro ao ler o PDF. Pode ser um PDF protegido ou escaneado.</span>';
+    }
+    inp.value = '';
+  });
+}
+
+function extraiLancamentosDePdf(texto){
+  const lancs = [];
+  // padrão DD/MM DESC VALOR (fatura/extrato Santander)
+  const re = /(\d{2}\/\d{2})\s+([A-Za-zÀ-ú0-9*\.\-\/ ]{4,50}?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})/g;
+  const blacklist = ['saldo','pagamento de fatura','deb autom','total','anuidade','iof','limite',
+    'valor total','resumo','cotacao','juros','multa','rotativo','seguro prestamista',
+    'detalhamento','periodo','historico','demonstrativo','xxxx'];
+  let m;
+  const anoAtual = new Date().getFullYear();
+  while((m = re.exec(texto)) !== null){
+    const dataStr = m[1], desc = m[2].trim(), valStr = m[3];
+    const dl = desc.toLowerCase();
+    if(blacklist.some(b => dl.includes(b))) continue;
+    const valor = parseFloat(valStr.replace(/\./g,'').replace(',','.'));
+    if(!valor || valor <= 0 || valor > 8000) continue;
+    const [dia,mes] = dataStr.split('/');
+    const catId = detectaCategoria(desc) || 'outros';
+    lancs.push({
+      desc: desc.slice(0,50),
+      valor,
+      dia: parseInt(dia),
+      mes: parseInt(mes),
+      categoriaId: catId,
+    });
+  }
+  // dedupe
+  const seen = new Set();
+  return lancs.filter(l => {
+    const k = `${l.dia}-${l.mes}-${l.valor}-${l.desc.slice(0,15)}`;
+    if(seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+function mostraRevisaoPdf(lancs){
+  const status = document.getElementById('pdfStatus');
+  const total = lancs.reduce((a,l)=>a+l.valor,0);
+  status.innerHTML = `
+    <span class="ok">${lancs.length} lançamentos encontrados (${fmt(total)})</span>
+    <div class="pdf-review">
+      ${lancs.slice(0,30).map(l => `
+        <div class="pdf-review-item">
+          <span class="pdf-review-desc">${l.dia.toString().padStart(2,'0')}/${l.mes.toString().padStart(2,'0')} · ${l.desc}</span>
+          <span class="pdf-review-val">${fmt(l.valor)}</span>
+        </div>
+      `).join('')}
+      ${lancs.length > 30 ? `<div class="cap">+ ${lancs.length-30} outros…</div>` : ''}
+    </div>
+    <button class="btn-primary pdf-confirm" id="btnImportaPdf">Importar ${lancs.length} lançamentos</button>
+  `;
+  document.getElementById('btnImportaPdf').onclick = importaPdfPendentes;
+}
+
+async function importaPdfPendentes(){
+  if(pdfLancamentosPendentes.length === 0) return;
+  const status = document.getElementById('pdfStatus');
+  status.innerHTML = 'Importando…';
+  const anoAtual = state.ano;
+  const batch = writeBatch(db);
+  for(const l of pdfLancamentosPendentes){
+    // assume ano corrente; se mês > mês atual, ano anterior
+    let ano = anoAtual;
+    if(l.mes > (state.mes+1)) ano = anoAtual - 1;
+    const data = new Date(ano, l.mes-1, l.dia, 12, 0);
+    const ref = doc(collection(db, 'lancamentos'));
+    batch.set(ref, {
+      valor: l.valor,
+      descricao: l.desc,
+      categoriaId: l.categoriaId,
+      ts: data.getTime(),
+      data: data.toISOString(),
+      criadoEm: Date.now(),
+      origem: 'pdf',
+    });
+  }
+  await batch.commit();
+  pdfLancamentosPendentes = [];
+  status.innerHTML = '<span class="ok">Importado! Veja nos lançamentos do mês.</span>';
+  toast('Lançamentos importados');
+}
+
+// ============================================================
 // BOOTSTRAP
 // ============================================================
 async function init(){
@@ -1067,6 +1402,7 @@ async function init(){
     bindModais();
     bindModalAtivo();
     bindProjecaoSliders();
+    bindPdfUpload();
 
     await semeaSeNecessario();
     escutaCategorias();

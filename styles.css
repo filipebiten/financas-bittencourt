@@ -279,3 +279,40 @@ input,select{font-family:inherit;color:var(--ink)}
 .proj-row-lbl strong{font-family:'Fraunces',serif;color:var(--ink);font-weight:500;display:block;font-size:15px}
 .proj-row-val{font-family:'Fraunces',serif;font-weight:500;font-size:22px;letter-spacing:-.02em;color:var(--ink)}
 .proj-disclaimer{margin-top:14px;font-size:12px;color:var(--soft);font-style:italic;line-height:1.5;padding:0 4px}
+
+/* ---- BOTÃO DE VOZ ---- */
+.voice-btn{width:100%;background:var(--warm-bg);border:1.5px solid var(--warm);border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:8px;transition:transform .15s}
+.voice-btn:active{transform:scale(.98)}
+.voice-btn.listening{background:var(--warm);animation:pulseVoice 1.2s infinite}
+.voice-btn.listening .voice-txt,.voice-btn.listening .voice-ico{color:#fff}
+@keyframes pulseVoice{0%,100%{opacity:1}50%{opacity:.7}}
+.voice-ico{font-size:30px;line-height:1}
+.voice-txt{font-family:'Fraunces',serif;font-weight:500;font-size:15px;color:var(--warm-deep)}
+.voice-ex{text-align:center;font-size:12px;color:var(--soft);font-style:italic;margin-bottom:18px}
+
+/* ---- PARCELAMENTO ---- */
+.parcela-row{display:flex;gap:10px}
+.parcela-tip{font-size:13px;color:var(--warm-deep);font-style:italic;margin-top:-8px;min-height:18px}
+
+/* ---- SELETOR DE MÊS / DETALHE ---- */
+.mes-detalhe{display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:14px;overflow:hidden;border:1px solid var(--line-soft)}
+.mes-cat{background:var(--card);padding:13px 18px;display:flex;justify-content:space-between;align-items:center}
+.mes-cat-name{font-size:14px;font-weight:500;color:var(--ink-soft);display:flex;align-items:center;gap:9px}
+.mes-cat-val{font-family:'Fraunces',serif;font-weight:500;font-size:15px}
+.mes-cat-total{background:var(--ink);color:var(--paper)}
+.mes-cat-total .mes-cat-name{color:var(--paper);font-family:'Fraunces',serif}
+.mes-cat-total .mes-cat-val{color:var(--gold)}
+
+/* ---- UPLOAD PDF ---- */
+.pdf-drop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:28px;border:2px dashed var(--line);border-radius:16px;background:var(--card);cursor:pointer;transition:border-color .2s,background .2s}
+.pdf-drop:active{border-color:var(--warm);background:var(--warm-bg)}
+.pdf-ico{font-size:34px}
+.pdf-txt{font-family:'Fraunces',serif;font-weight:500;font-size:15px;color:var(--soft)}
+.pdf-status{margin-top:14px;font-size:14px;color:var(--ink-soft)}
+.pdf-status .ok{color:var(--green)}
+.pdf-status .err{color:var(--red)}
+.pdf-review{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.pdf-review-item{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.pdf-review-desc{font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pdf-review-val{font-family:'Fraunces',serif;font-weight:500;font-size:15px}
+.pdf-confirm{margin-top:14px}

@@ -127,6 +127,12 @@
       <!-- seletor de categoria -->
       <div class="cat-chips" id="catChips"></div>
 
+      <!-- detalhamento de um mês específico -->
+      <h2 class="sec-title" style="margin-top:32px">Ver um mês</h2>
+      <p class="sec-sub">Escolha um mês pra ver os gastos por categoria.</p>
+      <select id="mesSelect" class="select" style="margin-bottom:16px"></select>
+      <div class="mes-detalhe" id="mesDetalhe"></div>
+
       <!-- comparativo entre meses -->
       <h2 class="sec-title" style="margin-top:32px">Comparativo</h2>
       <p class="sec-sub">Cada categoria, média dos 12 meses vs teto novo.</p>
@@ -203,7 +209,16 @@
 
     <!-- ========= TAB LANÇAMENTOS ========= -->
     <section class="view hidden" id="view-lancamentos">
-      <h2 class="sec-title">Lançamentos do mês</h2>
+      <h2 class="sec-title">Importar fatura ou extrato</h2>
+      <p class="sec-sub">Suba um PDF do Santander, Rico ou Nomad. O app extrai os lançamentos.</p>
+      <label class="pdf-drop" for="pdfInput">
+        <div class="pdf-ico">📄</div>
+        <div class="pdf-txt">Tocar pra escolher um PDF</div>
+        <input type="file" id="pdfInput" accept="application/pdf" hidden>
+      </label>
+      <div class="pdf-status" id="pdfStatus"></div>
+
+      <h2 class="sec-title" style="margin-top:32px">Lançamentos do mês</h2>
       <p class="sec-sub">Mais recentes primeiro. Toque pra editar ou excluir.</p>
       <div class="lancs" id="lancsList">
         <div class="empty" id="emptyLancs">Nenhum lançamento ainda este mês.</div>
@@ -294,6 +309,13 @@
         <button class="x" data-close>✕</button>
       </div>
 
+      <!-- Botão de voz grande -->
+      <button class="voice-btn" id="voiceBtn" type="button">
+        <span class="voice-ico" id="voiceIco">🎙</span>
+        <span class="voice-txt" id="voiceTxt">Tocar e falar o gasto</span>
+      </button>
+      <div class="voice-ex">ex: "gastei 80 no posto" · "150 no mercado"</div>
+
       <div class="form">
         <label class="lbl">Valor</label>
         <div class="money-input">
@@ -304,15 +326,29 @@
         <label class="lbl">Estabelecimento ou descrição</label>
         <div class="text-input">
           <input type="text" id="inpDesc" placeholder="Ex: Drogasil, Posto, Almoço…" autocomplete="off">
-          <button class="mic-hint" type="button" id="micHint" aria-label="Use o microfone do teclado">🎙</button>
         </div>
-        <div class="mic-tip">Toque no microfone do teclado pra ditar</div>
 
         <label class="lbl">Categoria <span class="auto" id="autoCat"></span></label>
         <select id="inpCat" class="select"></select>
 
         <label class="lbl">Data</label>
         <input type="date" id="inpData" class="select">
+
+        <!-- Parcelamento -->
+        <label class="lbl">Parcelar?</label>
+        <div class="parcela-row">
+          <select id="inpParcelas" class="select">
+            <option value="1">À vista (1x)</option>
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="4">4x</option>
+            <option value="5">5x</option>
+            <option value="6">6x</option>
+            <option value="10">10x</option>
+            <option value="12">12x</option>
+          </select>
+        </div>
+        <div class="parcela-tip" id="parcelaTip"></div>
 
         <button class="btn-primary" id="btnSalvar">Salvar lançamento</button>
       </div>
@@ -377,6 +413,12 @@
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if(window.pdfjsLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
