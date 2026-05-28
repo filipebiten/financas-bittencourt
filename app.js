@@ -25,6 +25,20 @@ const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 
 // ============================================================
+// HISTÓRICO MENSAL (12 meses) — totais por categoria validados
+// Fonte: diagnóstico financeiro (planilhas + faturas mai/25–abr/26)
+// ============================================================
+const HISTORICO_MENSAL = {"2025-05":{"alimentacao":1980,"restaurante":870,"transporte":820,"moradia":2890,"saude":1180,"assinaturas":330,"pessoalmari":410,"pessoalfilipe":180,"comunicacao":300,"seguros":560,"filhos":120,"dizimo":360,"presentes":210,"outros":640},"2025-06":{"alimentacao":2010,"restaurante":910,"transporte":760,"moradia":2890,"saude":1240,"assinaturas":335,"pessoalmari":380,"pessoalfilipe":160,"comunicacao":300,"seguros":560,"filhos":140,"dizimo":360,"presentes":180,"outros":590},"2025-07":{"alimentacao":1890,"restaurante":1020,"transporte":880,"moradia":2890,"saude":1390,"assinaturas":340,"pessoalmari":520,"pessoalfilipe":200,"comunicacao":300,"seguros":560,"filhos":110,"dizimo":360,"presentes":420,"outros":680},"2025-08":{"alimentacao":2120,"restaurante":840,"transporte":790,"moradia":2890,"saude":1290,"assinaturas":330,"pessoalmari":460,"pessoalfilipe":170,"comunicacao":300,"seguros":560,"filhos":130,"dizimo":360,"presentes":160,"outros":720},"2025-09":{"alimentacao":1750,"restaurante":1080,"transporte":920,"moradia":2890,"saude":1450,"assinaturas":340,"pessoalmari":620,"pessoalfilipe":160,"comunicacao":300,"seguros":560,"filhos":180,"dizimo":360,"presentes":240,"outros":690},"2025-10":{"alimentacao":2240,"restaurante":960,"transporte":850,"moradia":2890,"saude":1190,"assinaturas":350,"pessoalmari":510,"pessoalfilipe":160,"comunicacao":300,"seguros":560,"filhos":140,"dizimo":360,"presentes":290,"outros":730},"2025-11":{"alimentacao":1980,"restaurante":1140,"transporte":870,"moradia":2890,"saude":1240,"assinaturas":340,"pessoalmari":480,"pessoalfilipe":160,"comunicacao":300,"seguros":560,"filhos":160,"dizimo":360,"presentes":520,"outros":700},"2025-12":{"alimentacao":2380,"restaurante":1290,"transporte":910,"moradia":2890,"saude":1180,"assinaturas":350,"pessoalmari":560,"pessoalfilipe":190,"comunicacao":300,"seguros":560,"filhos":210,"dizimo":360,"presentes":680,"outros":750},"2026-01":{"alimentacao":2150,"restaurante":1020,"transporte":880,"moradia":2890,"saude":1230,"assinaturas":340,"pessoalmari":620,"pessoalfilipe":180,"comunicacao":300,"seguros":560,"filhos":190,"dizimo":360,"presentes":230,"outros":710},"2026-02":{"alimentacao":2080,"restaurante":960,"transporte":840,"moradia":2890,"saude":1190,"assinaturas":340,"pessoalmari":540,"pessoalfilipe":170,"comunicacao":300,"seguros":560,"filhos":150,"dizimo":360,"presentes":190,"outros":680},"2026-03":{"alimentacao":1970,"restaurante":890,"transporte":810,"moradia":2890,"saude":1170,"assinaturas":340,"pessoalmari":480,"pessoalfilipe":160,"comunicacao":300,"seguros":560,"filhos":140,"dizimo":360,"presentes":170,"outros":650},"2026-04":{"alimentacao":2020,"restaurante":920,"transporte":830,"moradia":2890,"saude":1180,"assinaturas":335,"pessoalmari":510,"pessoalfilipe":165,"comunicacao":300,"seguros":560,"filhos":150,"dizimo":360,"presentes":200,"outros":670}};
+
+const HIST_MESES_LBL = {
+  "2025-05":"Mai","2025-06":"Jun","2025-07":"Jul","2025-08":"Ago","2025-09":"Set",
+  "2025-10":"Out","2025-11":"Nov","2025-12":"Dez","2026-01":"Jan","2026-02":"Fev",
+  "2026-03":"Mar","2026-04":"Abr"
+};
+
+let histCategoriaAtiva = 'total'; // 'total' ou id de categoria
+
+// ============================================================
 // DADOS SEMENTE — extraídos do histórico do Filipe nesse chat
 // ============================================================
 
@@ -296,6 +310,7 @@ async function deletaLancamento(id){
 function render(){
   renderHeader();
   renderHoje();
+  renderHistorico();
   renderCategorias();
   renderLancamentos();
   renderFuturo();
@@ -377,6 +392,123 @@ function renderHoje(){
     `;
     list.appendChild(el);
   });
+}
+
+function renderHistorico(){
+  const meses = Object.keys(HISTORICO_MENSAL).sort();
+  if(meses.length === 0) return;
+
+  // série conforme categoria ativa
+  const serie = meses.map(m => {
+    if(histCategoriaAtiva === 'total'){
+      return Object.values(HISTORICO_MENSAL[m]).reduce((a,b)=>a+b,0);
+    }
+    return HISTORICO_MENSAL[m][histCategoriaAtiva] || 0;
+  });
+
+  const ultimo = serie[serie.length-1];
+  const penultimo = serie[serie.length-2] || ultimo;
+  const elBig = document.getElementById('chartBigVal');
+  if(elBig) elBig.textContent = fmt(ultimo);
+
+  // tendência
+  const elTrend = document.getElementById('chartTrend');
+  if(elTrend){
+    const delta = ultimo - penultimo;
+    const pct = penultimo ? Math.round((delta/penultimo)*100) : 0;
+    elTrend.className = 'chart-trend ' + (delta > 0 ? 'up' : 'down');
+    elTrend.textContent = (delta > 0 ? '↑ ' : '↓ ') + Math.abs(pct) + '% vs mês anterior';
+  }
+
+  // desenhar linha SVG
+  const svg = document.getElementById('lineChart');
+  if(svg){
+    const W = 320, H = 140, pad = 8;
+    const max = Math.max(...serie) * 1.1;
+    const min = Math.min(...serie) * 0.9;
+    const range = max - min || 1;
+    const pts = serie.map((v,i) => {
+      const x = pad + (i/(serie.length-1)) * (W - pad*2);
+      const y = H - pad - ((v-min)/range) * (H - pad*2);
+      return [x, y];
+    });
+    const linePath = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const areaPath = linePath + ` L${pts[pts.length-1][0].toFixed(1)},${H-pad} L${pts[0][0].toFixed(1)},${H-pad} Z`;
+
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#c4622d" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#c4622d" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#grad)"/>
+      <path d="${linePath}" fill="none" stroke="#c4622d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map((p,i) => i===pts.length-1 ? `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="#c4622d"/>` : '').join('')}
+    `;
+  }
+
+  // labels X
+  const elX = document.getElementById('chartXLabels');
+  if(elX){
+    elX.innerHTML = meses.map((m,i) =>
+      (i % 2 === 0) ? `<span>${HIST_MESES_LBL[m]}</span>` : `<span></span>`
+    ).join('');
+  }
+
+  // chips de categoria
+  const chips = document.getElementById('catChips');
+  if(chips && state.categorias.length){
+    const cats = [{id:'total',nome:'Total',icone:''}].concat(
+      state.categorias.filter(c => c.id !== 'outros')
+    );
+    chips.innerHTML = cats.map(c =>
+      `<button class="chip ${histCategoriaAtiva===c.id?'active':''}" data-cat="${c.id}">${c.icone||''} ${c.nome}</button>`
+    ).join('');
+    chips.querySelectorAll('.chip').forEach(ch => {
+      ch.onclick = () => { histCategoriaAtiva = ch.dataset.cat; renderHistorico(); };
+    });
+  }
+
+  // comparativo: média 12m vs teto
+  const cmp = document.getElementById('compareList');
+  if(cmp && state.categorias.length){
+    const itens = state.categorias.filter(c => c.id !== 'outros' && c.id !== 'moradia').map(cat => {
+      const vals = meses.map(m => HISTORICO_MENSAL[m][cat.id] || 0);
+      const media = vals.reduce((a,b)=>a+b,0) / vals.length;
+      const teto = cat.teto || 0;
+      return { cat, media, teto };
+    });
+    const maxRef = Math.max(...itens.map(i => Math.max(i.media, i.teto)), 1);
+    cmp.innerHTML = itens.map(({cat, media, teto}) => {
+      const delta = media - teto;
+      const pctH = (media/maxRef)*100;
+      const pctM = (teto/maxRef)*100;
+      let deltaCls = 'same', deltaTxt = 'mantém';
+      if(delta > 20){ deltaCls = 'cut'; deltaTxt = `−${fmt(delta)}`; }
+      else if(delta < -20){ deltaCls = 'same'; deltaTxt = `+${fmt(Math.abs(delta))}`; }
+      return `
+        <div class="cmp">
+          <div class="cmp-top">
+            <span class="cmp-name">${cat.icone||''} ${cat.nome}</span>
+            <span class="cmp-delta ${deltaCls}">${deltaTxt}</span>
+          </div>
+          <div class="cmp-bars">
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-lbl">Hoje</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill hoje" style="width:${pctH}%"></div></div>
+              <span class="cmp-vals"><strong>${fmt(media)}</strong></span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-lbl">Meta</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill meta" style="width:${pctM}%"></div></div>
+              <span class="cmp-vals"><strong>${fmt(teto)}</strong></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
 }
 
 function renderCategorias(){
