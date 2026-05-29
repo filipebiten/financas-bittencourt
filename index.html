@@ -356,6 +356,13 @@
         </div>
         <div class="parcela-tip" id="parcelaTip"></div>
 
+        <!-- Recorrência -->
+        <label class="check recur-check">
+          <input type="checkbox" id="inpRecorrente">
+          <span>🔁 É um gasto que se repete todo mês? <em>(ex: Netflix, aluguel, TIM)</em></span>
+        </label>
+        <div class="parcela-tip" id="recurTip" style="color:var(--green)"></div>
+
         <button class="btn-primary" id="btnSalvar">Salvar lançamento</button>
       </div>
     </div>
@@ -413,6 +420,7 @@
           <input type="text" inputmode="decimal" id="ativoValor">
         </div>
         <button class="btn-primary" id="btnSalvarAtivo">Salvar</button>
+        <button class="btn-danger hidden" id="btnExcluirAtivo">Excluir ativo</button>
       </div>
     </div>
   </div>

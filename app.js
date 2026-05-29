@@ -268,10 +268,11 @@ const ESTABS_SEMENTE = {
 let state = {
   categorias: [],
   lancamentos: [],
-  estabelecimentos: {},  // texto digitado -> categoriaId
-  investimentos: null,   // {rendaFixa, acoesBR, fiis, internacional}
-  grao: null,            // {valor, rendimento}
-  cofres: [],            // [{id, nome, icone, meta, mesAlvo, atual, ...}]
+  estabelecimentos: {},
+  investimentos: null,
+  grao: null,
+  cofres: [],
+  recorrencias: [],
   mes: new Date().getMonth(),
   ano: new Date().getFullYear(),
 };
@@ -345,6 +346,23 @@ async function semeaSeNecessario(){
       atualizado: '2026-05-06'
     });
   }
+
+  // Semear cofres iniciais (uma vez só)
+  const flagRef = doc(db, 'config', 'cofresSemeados');
+  const flagSnap = await getDoc(flagRef);
+  if(!flagSnap.exists()){
+    const cofresIniciais = [
+      { nome: 'IPVA carro',         icone: '🚗', meta: 1800, atual: 0, mesAlvo: 1, criadoEm: Date.now() },
+      { nome: 'Manutenção do carro', icone: '🛠️', meta: 1800, atual: 0, mesAlvo: 12, criadoEm: Date.now() },
+    ];
+    const batch2 = writeBatch(db);
+    for(const c of cofresIniciais){
+      const r = doc(collection(db, 'cofres'));
+      batch2.set(r, c);
+    }
+    batch2.set(flagRef, { semeadoEm: Date.now() });
+    await batch2.commit();
+  }
 }
 
 async function escutaCategorias(){
@@ -367,6 +385,14 @@ async function escutaLancamentos(){
   );
   onSnapshot(q, (snap) => {
     state.lancamentos = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    // atualizar cache do mês atual (Plano A: histórico real soma sobre semente)
+    const key = `${state.ano}-${(state.mes+1).toString().padStart(2,'0')}`;
+    const totais = {};
+    state.lancamentos.forEach(l => {
+      const cid = l.categoriaId || 'outros';
+      totais[cid] = (totais[cid] || 0) + (l.valor || 0);
+    });
+    _historicoRealCache[key] = totais;
     render();
     markSync('ok');
   }, (err) => {
@@ -401,6 +427,72 @@ async function escutaCofres(){
     state.cofres = snap.docs.map(d => ({id: d.id, ...d.data()}));
     render();
   });
+}
+
+// ============================================================
+// RECORRÊNCIAS — Netflix, aluguel, TIM... aparecem todo mês
+// ============================================================
+async function escutaRecorrencias(){
+  onSnapshot(collection(db, 'recorrencias'), async (snap) => {
+    state.recorrencias = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    // toda vez que mudar (e na carga inicial), tenta materializar lançamentos do mês corrente
+    await materializaRecorrenciasDoMes();
+  });
+}
+
+async function materializaRecorrenciasDoMes(){
+  if(!state.recorrencias || state.recorrencias.length === 0) return;
+  const hoje = new Date();
+  const mesKey = `${hoje.getFullYear()}-${(hoje.getMonth()+1).toString().padStart(2,'0')}`;
+  const batch = writeBatch(db);
+  let criados = 0;
+
+  for(const rec of state.recorrencias){
+    // Já existe lançamento desta recorrência neste mês?
+    const jaExiste = state.lancamentos.some(l =>
+      l.recorrenciaId === rec.id &&
+      new Date(l.ts).getFullYear() === hoje.getFullYear() &&
+      new Date(l.ts).getMonth() === hoje.getMonth()
+    );
+    if(jaExiste) continue;
+
+    // checa data inicial — não materializa antes do começo
+    const dataInicio = rec.dataInicio ? new Date(rec.dataInicio) : null;
+    if(dataInicio && dataInicio > hoje) continue;
+
+    // dia do mês: pega do rec.diaDoMes ou usa dia 1
+    const dia = Math.min(rec.diaDoMes || 1, new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate());
+    const dataLanc = new Date(hoje.getFullYear(), hoje.getMonth(), dia, 12, 0);
+
+    const ref = doc(collection(db, 'lancamentos'));
+    batch.set(ref, {
+      valor: rec.valor,
+      descricao: rec.descricao,
+      categoriaId: rec.categoriaId,
+      ts: dataLanc.getTime(),
+      data: dataLanc.toISOString(),
+      criadoEm: Date.now(),
+      recorrenciaId: rec.id,
+      origem: 'recorrencia',
+    });
+    criados++;
+  }
+  if(criados > 0){
+    await batch.commit();
+    toast(`${criados} gasto${criados>1?'s':''} recorrente${criados>1?'s':''} adicionado${criados>1?'s':''} este mês`);
+  }
+}
+
+async function criaRecorrencia({valor, descricao, categoriaId, diaDoMes}){
+  await addDoc(collection(db, 'recorrencias'), {
+    valor, descricao, categoriaId, diaDoMes,
+    dataInicio: new Date().toISOString(),
+    criadoEm: Date.now(),
+  });
+}
+
+async function deletaRecorrencia(id){
+  await deleteDoc(doc(db, 'recorrencias', id));
 }
 
 // ===== CRUD categorias =====
@@ -628,16 +720,69 @@ function renderHoje(){
   });
 }
 
+// ============================================================
+// HISTÓRICO MESCLADO — semente (passado fechado) + lançamentos reais (presente)
+// Plano A: histórico semente cobre mai/25 → abr/26;
+// meses a partir de mai/26 vêm dos lançamentos reais.
+// ============================================================
+async function buscaLancamentosDeUmMes(ano, mes){
+  // mes 1-based
+  const ini = new Date(ano, mes-1, 1).getTime();
+  const fim = new Date(ano, mes, 0, 23, 59, 59).getTime();
+  const q = query(
+    collection(db, 'lancamentos'),
+    where('ts', '>=', ini),
+    where('ts', '<=', fim)
+  );
+  const snap = await getDocs(q);
+  const totaisPorCat = {};
+  snap.docs.forEach(d => {
+    const l = d.data();
+    totaisPorCat[l.categoriaId] = (totaisPorCat[l.categoriaId]||0) + (l.valor||0);
+  });
+  return totaisPorCat;
+}
+
+// cache em memória dos meses reais já buscados
+const _historicoRealCache = {};
+
+async function carregaHistoricoRealNovo(){
+  // pra cada mês desde mai/26 até o mês atual, popula cache
+  const inicio = new Date(2026, 4, 1); // maio/26 (mes index 4)
+  const hoje = new Date();
+  let cursor = new Date(inicio);
+  while(cursor <= hoje){
+    const key = `${cursor.getFullYear()}-${(cursor.getMonth()+1).toString().padStart(2,'0')}`;
+    if(!(key in _historicoRealCache)){
+      _historicoRealCache[key] = await buscaLancamentosDeUmMes(cursor.getFullYear(), cursor.getMonth()+1);
+    }
+    cursor.setMonth(cursor.getMonth()+1);
+  }
+}
+
+function historicoMesclado(){
+  // base: histórico semente (passado fechado)
+  const out = { ...HISTORICO_MENSAL };
+  // adiciona meses reais (cache)
+  for(const [k, dados] of Object.entries(_historicoRealCache)){
+    if(Object.keys(dados).length > 0){
+      out[k] = dados;
+    }
+  }
+  return out;
+}
+
 function renderHistorico(){
-  const meses = Object.keys(HISTORICO_MENSAL).sort();
+  const histTotal = historicoMesclado();
+  const meses = Object.keys(histTotal).sort();
   if(meses.length === 0) return;
 
   // série conforme categoria ativa
   const serie = meses.map(m => {
     if(histCategoriaAtiva === 'total'){
-      return Object.values(HISTORICO_MENSAL[m]).reduce((a,b)=>a+b,0);
+      return Object.values(histTotal[m]).reduce((a,b)=>a+b,0);
     }
-    return HISTORICO_MENSAL[m][histCategoriaAtiva] || 0;
+    return histTotal[m][histCategoriaAtiva] || 0;
   });
 
   const ultimo = serie[serie.length-1];
@@ -685,8 +830,15 @@ function renderHistorico(){
   // labels X
   const elX = document.getElementById('chartXLabels');
   if(elX){
+    const lblMes = (m) => {
+      if(HIST_MESES_LBL[m]) return HIST_MESES_LBL[m];
+      const [a, mm] = m.split('-');
+      return MESES_NOMES[parseInt(mm)-1].slice(0,3);
+    };
+    // mostra ~6 labels distribuídos
+    const step = Math.max(1, Math.floor(meses.length/6));
     elX.innerHTML = meses.map((m,i) =>
-      (i % 2 === 0) ? `<span>${HIST_MESES_LBL[m]}</span>` : `<span></span>`
+      (i % step === 0) ? `<span>${lblMes(m)}</span>` : `<span></span>`
     ).join('');
   }
 
@@ -707,14 +859,13 @@ function renderHistorico(){
   // seletor de mês + detalhamento
   const mesSel = document.getElementById('mesSelect');
   if(mesSel && state.categorias.length){
-    if(!mesSel.dataset.populated){
-      mesSel.innerHTML = meses.slice().reverse().map(m => {
-        const [a,mm] = m.split('-');
-        return `<option value="${m}">${MESES_NOMES[parseInt(mm)-1]} · ${a}</option>`;
-      }).join('');
-      mesSel.dataset.populated = '1';
-      mesSel.onchange = () => renderMesDetalhe(mesSel.value);
-    }
+    const selecionado = mesSel.value;
+    mesSel.innerHTML = meses.slice().reverse().map(m => {
+      const [a,mm] = m.split('-');
+      return `<option value="${m}">${MESES_NOMES[parseInt(mm)-1]} · ${a}</option>`;
+    }).join('');
+    if(selecionado && meses.includes(selecionado)) mesSel.value = selecionado;
+    mesSel.onchange = () => renderMesDetalhe(mesSel.value);
     renderMesDetalhe(mesSel.value || meses[meses.length-1]);
   }
 
@@ -722,7 +873,7 @@ function renderHistorico(){
   const cmp = document.getElementById('compareList');
   if(cmp && state.categorias.length){
     const itens = state.categorias.filter(c => c.id !== 'outros' && c.id !== 'moradia').map(cat => {
-      const vals = meses.map(m => HISTORICO_MENSAL[m][cat.id] || 0);
+      const vals = meses.map(m => histTotal[m][cat.id] || 0);
       const media = vals.reduce((a,b)=>a+b,0) / vals.length;
       const teto = cat.teto || 0;
       return { cat, media, teto };
@@ -914,6 +1065,7 @@ function abreModalAtivo(quad, idx){
   const ativo = state.investimentos[quad][idx];
   document.getElementById('ativoNome').textContent = ativo.nome;
   document.getElementById('ativoValor').value = ativo.valor.toString().replace('.', ',');
+  document.getElementById('btnExcluirAtivo').classList.remove('hidden');
   document.getElementById('modalAtivo').classList.remove('hidden');
 }
 
@@ -921,13 +1073,15 @@ function abreModalGrao(){
   editandoAtivo = {tipo:'grao'};
   document.getElementById('ativoNome').textContent = 'Grão · Previdência';
   document.getElementById('ativoValor').value = state.grao.valor.toString().replace('.', ',');
+  document.getElementById('btnExcluirAtivo').classList.add('hidden');
   document.getElementById('modalAtivo').classList.remove('hidden');
 }
 
 function renderMesDetalhe(mesKey){
   const det = document.getElementById('mesDetalhe');
-  if(!det || !HISTORICO_MENSAL[mesKey]) return;
-  const dados = HISTORICO_MENSAL[mesKey];
+  const histTotal = historicoMesclado();
+  if(!det || !histTotal[mesKey]) return;
+  const dados = histTotal[mesKey];
   const total = Object.values(dados).reduce((a,b)=>a+b,0);
 
   // ordena categorias por valor desc
@@ -1005,18 +1159,33 @@ function renderLancamentos(){
     const data = new Date(l.ts);
     const dia = data.getDate().toString().padStart(2,'0');
     const mes = (data.getMonth()+1).toString().padStart(2,'0');
+    const ehRecorrente = l.origem === 'recorrencia';
+    const tagRecur = ehRecorrente ? '<span class="lanc-recur-tag">🔁 mensal</span>' : '';
     const el = document.createElement('div');
     el.className = 'lanc';
     el.innerHTML = `
       <div class="lanc-left">
-        <div class="lanc-desc">${l.descricao || '—'}</div>
+        <div class="lanc-desc">${l.descricao || '—'}${tagRecur}</div>
         <div class="lanc-meta">${dia}/${mes} · ${cat ? (cat.icone||'') + ' ' + cat.nome : 'Sem categoria'}</div>
       </div>
       <div class="lanc-val">${fmt(l.valor||0)}</div>
     `;
     el.onclick = () => {
-      if(confirm(`Excluir "${l.descricao}" (${fmt(l.valor)})?`)){
-        deletaLancamento(l.id).then(() => toast('Lançamento excluído'));
+      if(ehRecorrente){
+        const opts = ['1','2','cancel'];
+        const escolha = prompt(`"${l.descricao}" é um gasto mensal.\n\n1 = Excluir só este lançamento (este mês)\n2 = Excluir também a recorrência (não aparece mais nos próximos meses)\n\nDigite 1, 2 ou deixe vazio pra cancelar:`);
+        if(escolha === '1'){
+          deletaLancamento(l.id).then(() => toast('Lançamento excluído'));
+        } else if(escolha === '2'){
+          Promise.all([
+            deletaLancamento(l.id),
+            l.recorrenciaId ? deletaRecorrencia(l.recorrenciaId) : Promise.resolve()
+          ]).then(() => toast('Recorrência cancelada'));
+        }
+      } else {
+        if(confirm(`Excluir "${l.descricao}" (${fmt(l.valor)})?`)){
+          deletaLancamento(l.id).then(() => toast('Lançamento excluído'));
+        }
       }
     };
     box.appendChild(el);
@@ -1076,16 +1245,19 @@ function renderFuturo(){
 }
 
 function renderProjOrcamento(){
-  // gasto REAL: média dos últimos 12 meses do histórico
-  const meses = Object.keys(HISTORICO_MENSAL);
+  // gasto REAL: histórico mesclado (semente + lançamentos novos)
+  const histTotal = historicoMesclado();
+  const meses = Object.keys(histTotal).sort();
+  // usa os últimos 12 meses disponíveis
+  const ultimos12 = meses.slice(-12);
   let totalReal12m = 0;
-  meses.forEach(m => totalReal12m += Object.values(HISTORICO_MENSAL[m]).reduce((a,b)=>a+b,0));
-  const realMensal = totalReal12m / meses.length;
+  ultimos12.forEach(m => totalReal12m += Object.values(histTotal[m]).reduce((a,b)=>a+b,0));
+  const realMensal = totalReal12m / ultimos12.length;
 
   // tendência: comparar últimos 3 com 3 anteriores
-  const ult3 = meses.slice(-3).reduce((a,m) => a + Object.values(HISTORICO_MENSAL[m]).reduce((s,v)=>s+v,0), 0)/3;
-  const ant3 = meses.slice(-6,-3).reduce((a,m) => a + Object.values(HISTORICO_MENSAL[m]).reduce((s,v)=>s+v,0), 0)/3;
-  const tendencia = ult3 - ant3; // se positivo, está subindo
+  const ult3 = ultimos12.slice(-3).reduce((a,m) => a + Object.values(histTotal[m]).reduce((s,v)=>s+v,0), 0)/3;
+  const ant3 = ultimos12.slice(-6,-3).reduce((a,m) => a + Object.values(histTotal[m]).reduce((s,v)=>s+v,0), 0)/3;
+  const tendencia = ult3 - ant3;
 
   // gasto PLANO: soma dos tetos
   const planoMensal = state.categorias.reduce((a,c) => a + (c.teto||0), 0);
@@ -1277,6 +1449,8 @@ function abreModalAdd(){
   document.getElementById('autoCat').textContent = '';
   document.getElementById('inpParcelas').value = '1';
   document.getElementById('parcelaTip').textContent = '';
+  document.getElementById('inpRecorrente').checked = false;
+  document.getElementById('recurTip').textContent = '';
   // data padrão = hoje
   const hoje = new Date().toISOString().split('T')[0];
   document.getElementById('inpData').value = hoje;
@@ -1325,6 +1499,7 @@ function bindModais(){
     const cat = document.getElementById('inpCat').value;
     const data = document.getElementById('inpData').value;
     const parcelas = parseInt(document.getElementById('inpParcelas').value) || 1;
+    const recorrente = document.getElementById('inpRecorrente').checked;
 
     if(!valor || valor <= 0){
       toast('Informe um valor válido');
@@ -1334,6 +1509,14 @@ function bindModais(){
       toast('Adicione uma descrição');
       return;
     }
+
+    // Recorrente + parcelado: não faz sentido junto
+    if(recorrente && parcelas > 1){
+      toast('Recorrente e parcelado não podem juntos — desmarque um');
+      return;
+    }
+
+    const dia = new Date(data + 'T12:00:00').getDate();
 
     // verificar se é estabelecimento desconhecido
     const detectado = detectaCategoria(desc);
@@ -1350,16 +1533,30 @@ function bindModais(){
           await salvaEstabelecimento(desc, catEscolhida);
         }
         await novoLancamento(valor, desc, catEscolhida, data, parcelas);
+        if(recorrente){
+          await criaRecorrencia({ valor, descricao: desc, categoriaId: catEscolhida, diaDoMes: dia });
+        }
         fechaModais();
-        toast(parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo');
+        toast(recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo'));
       };
       return;
     }
 
     await novoLancamento(valor, desc, cat, data, parcelas);
+    if(recorrente){
+      await criaRecorrencia({ valor, descricao: desc, categoriaId: cat, diaDoMes: dia });
+    }
     fechaModais();
-    toast(parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo');
+    toast(recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo'));
   };
+
+  // Tip da recorrência
+  document.getElementById('inpRecorrente').addEventListener('change', e => {
+    const tip = document.getElementById('recurTip');
+    tip.textContent = e.target.checked
+      ? '🔁 Vai aparecer sozinho todo mês no mesmo dia'
+      : '';
+  });
 }
 
 function atualizaParcelaTip(){
@@ -1503,6 +1700,20 @@ function bindModalAtivo(){
     fechaModais();
     toast('Atualizado');
   };
+
+  // Botão Excluir ativo
+  const btnEx = document.getElementById('btnExcluirAtivo');
+  if(btnEx){
+    btnEx.onclick = async () => {
+      if(!editandoAtivo || editandoAtivo.tipo !== 'ativo') return;
+      const ativo = state.investimentos[editandoAtivo.quad][editandoAtivo.idx];
+      if(confirm(`Excluir ${ativo.nome} (${fmt(ativo.valor)})?`)){
+        await deletaAtivo(editandoAtivo.quad, editandoAtivo.idx);
+        fechaModais();
+        toast('Ativo excluído');
+      }
+    };
+  }
 }
 
 // ============================================================
@@ -1914,6 +2125,11 @@ async function init(){
     escutaEstabelecimentos();
     escutaInvestimentos();
     escutaCofres();
+    escutaRecorrencias();
+
+    // Plano A: carrega lançamentos reais de mai/26 em diante pra mesclar com histórico semente
+    await carregaHistoricoRealNovo();
+    render();
   } catch(err){
     console.error('Erro init:', err);
     markSync('err');

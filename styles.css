@@ -381,3 +381,8 @@ input,select{font-family:inherit;color:var(--ink)}
 .dash-premissas summary{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);cursor:pointer;outline:none}
 .dash-prem-body{margin-top:10px;font-size:13px;color:var(--ink-soft);line-height:1.6}
 .dash-prem-body li{margin-left:18px;margin-bottom:2px}
+
+/* ---- v2.4: recorrência ---- */
+.recur-check{background:var(--green-bg);padding:12px 14px;border-radius:11px;margin-top:8px}
+.recur-check span em{color:var(--soft);font-style:italic;font-size:13px;display:block;margin-top:2px}
+.lanc-recur-tag{display:inline-flex;align-items:center;font-size:10px;color:var(--green);font-style:italic;margin-left:6px;letter-spacing:.05em}
