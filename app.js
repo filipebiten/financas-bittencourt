@@ -785,21 +785,59 @@ function renderHistorico(){
     return histTotal[m][histCategoriaAtiva] || 0;
   });
 
-  const ultimo = serie[serie.length-1];
-  const penultimo = serie[serie.length-2] || ultimo;
-  const elBig = document.getElementById('chartBigVal');
-  if(elBig) elBig.textContent = fmt(ultimo);
-
-  // tendência
-  const elTrend = document.getElementById('chartTrend');
-  if(elTrend){
-    const delta = ultimo - penultimo;
-    const pct = penultimo ? Math.round((delta/penultimo)*100) : 0;
-    elTrend.className = 'chart-trend ' + (delta > 0 ? 'up' : 'down');
-    elTrend.textContent = (delta > 0 ? '↑ ' : '↓ ') + Math.abs(pct) + '% vs mês anterior';
+  // popula o select de mês ANTES de ler o selecionado
+  const mesSel = document.getElementById('mesSelect');
+  let selecionado = mesSel ? mesSel.value : '';
+  if(mesSel && state.categorias.length){
+    const valAntes = mesSel.value;
+    mesSel.innerHTML = meses.slice().reverse().map(m => {
+      const [a,mm] = m.split('-');
+      return `<option value="${m}">${MESES_NOMES[parseInt(mm)-1]} · ${a}</option>`;
+    }).join('');
+    if(valAntes && meses.includes(valAntes)){
+      mesSel.value = valAntes;
+      selecionado = valAntes;
+    } else {
+      // default = mês mais recente do histórico
+      mesSel.value = meses[meses.length-1];
+      selecionado = meses[meses.length-1];
+    }
+    // handler do change: re-renderiza o histórico inteiro pra atualizar gráfico + número + tendência + detalhe
+    mesSel.onchange = () => renderHistorico();
   }
 
-  // desenhar linha SVG
+  // índice do mês selecionado na série
+  const idxSel = selecionado ? meses.indexOf(selecionado) : meses.length-1;
+  const idxValido = idxSel >= 0 ? idxSel : meses.length-1;
+
+  // número grande = valor do mês SELECIONADO
+  const valorMes = serie[idxValido];
+  const elBig = document.getElementById('chartBigVal');
+  if(elBig) elBig.textContent = fmt(valorMes);
+
+  // label do "Total mensal" mostra o mês escolhido
+  const elChartLbl = document.querySelector('.chart-lbl');
+  if(elChartLbl){
+    const [a, mm] = (meses[idxValido] || meses[meses.length-1]).split('-');
+    elChartLbl.textContent = `${MESES_NOMES[parseInt(mm)-1]} · ${a}`;
+  }
+
+  // tendência = mês selecionado vs anterior
+  const elTrend = document.getElementById('chartTrend');
+  if(elTrend){
+    if(idxValido === 0){
+      elTrend.style.display = 'none';
+    } else {
+      elTrend.style.display = '';
+      const ant = serie[idxValido-1];
+      const delta = valorMes - ant;
+      const pct = ant ? Math.round((delta/ant)*100) : 0;
+      elTrend.className = 'chart-trend ' + (delta > 0 ? 'up' : 'down');
+      elTrend.textContent = (delta > 0 ? '↑ ' : '↓ ') + Math.abs(pct) + '% vs mês anterior';
+    }
+  }
+
+  // desenhar linha SVG + ponto destacado no mês SELECIONADO
   const svg = document.getElementById('lineChart');
   if(svg){
     const W = 320, H = 140, pad = 8;
@@ -807,12 +845,21 @@ function renderHistorico(){
     const min = Math.min(...serie) * 0.9;
     const range = max - min || 1;
     const pts = serie.map((v,i) => {
-      const x = pad + (i/(serie.length-1)) * (W - pad*2);
+      const x = pad + (i/(serie.length-1 || 1)) * (W - pad*2);
       const y = H - pad - ((v-min)/range) * (H - pad*2);
       return [x, y];
     });
     const linePath = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
     const areaPath = linePath + ` L${pts[pts.length-1][0].toFixed(1)},${H-pad} L${pts[0][0].toFixed(1)},${H-pad} Z`;
+
+    // todos os pontos pequenos + ponto grande no selecionado
+    const pontos = pts.map((p,i) => {
+      if(i === idxValido){
+        // grande destacado
+        return `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="6" fill="#1f1b16" stroke="#f4efe7" stroke-width="3"/>`;
+      }
+      return `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="#c4622d" opacity="0.5"/>`;
+    }).join('');
 
     svg.innerHTML = `
       <defs>
@@ -823,7 +870,7 @@ function renderHistorico(){
       </defs>
       <path d="${areaPath}" fill="url(#grad)"/>
       <path d="${linePath}" fill="none" stroke="#c4622d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      ${pts.map((p,i) => i===pts.length-1 ? `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="#c4622d"/>` : '').join('')}
+      ${pontos}
     `;
   }
 
@@ -835,7 +882,6 @@ function renderHistorico(){
       const [a, mm] = m.split('-');
       return MESES_NOMES[parseInt(mm)-1].slice(0,3);
     };
-    // mostra ~6 labels distribuídos
     const step = Math.max(1, Math.floor(meses.length/6));
     elX.innerHTML = meses.map((m,i) =>
       (i % step === 0) ? `<span>${lblMes(m)}</span>` : `<span></span>`
@@ -856,18 +902,8 @@ function renderHistorico(){
     });
   }
 
-  // seletor de mês + detalhamento
-  const mesSel = document.getElementById('mesSelect');
-  if(mesSel && state.categorias.length){
-    const selecionado = mesSel.value;
-    mesSel.innerHTML = meses.slice().reverse().map(m => {
-      const [a,mm] = m.split('-');
-      return `<option value="${m}">${MESES_NOMES[parseInt(mm)-1]} · ${a}</option>`;
-    }).join('');
-    if(selecionado && meses.includes(selecionado)) mesSel.value = selecionado;
-    mesSel.onchange = () => renderMesDetalhe(mesSel.value);
-    renderMesDetalhe(mesSel.value || meses[meses.length-1]);
-  }
+  // detalhamento do mês selecionado
+  if(selecionado) renderMesDetalhe(selecionado);
 
   // comparativo: média 12m vs teto
   const cmp = document.getElementById('compareList');
@@ -1241,7 +1277,140 @@ function renderCofres(){
 // ============================================================
 function renderFuturo(){
   renderProjOrcamento();
+  renderCompromissos();
   renderProjInvestimentos();
+}
+
+async function renderCompromissos(){
+  const box = document.getElementById('compList');
+  if(!box) return;
+
+  // janela: hoje até +12 meses (frente)
+  const hoje = new Date();
+  const inicio = new Date(hoje.getFullYear(), hoje.getMonth()+1, 1); // próximo mês
+  const fim = new Date(hoje.getFullYear(), hoje.getMonth()+13, 0, 23, 59, 59);
+
+  // busca lançamentos futuros (parcelas com data no futuro)
+  let lancsFuturos = [];
+  try {
+    const qf = query(
+      collection(db, 'lancamentos'),
+      where('ts', '>=', inicio.getTime()),
+      where('ts', '<=', fim.getTime())
+    );
+    const snap = await getDocs(qf);
+    lancsFuturos = snap.docs.map(d => ({id: d.id, ...d.data()}));
+  } catch(e){
+    // sem permissão / sem dados / etc
+  }
+
+  // recorrências ativas — virão a cada mês
+  const recorrentes = state.recorrencias || [];
+
+  // monta 12 meses
+  const meses = [];
+  for(let i = 0; i < 12; i++){
+    const d = new Date(hoje.getFullYear(), hoje.getMonth()+1+i, 1);
+    meses.push({
+      ano: d.getFullYear(),
+      mes: d.getMonth(), // 0-indexed
+      key: `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}`,
+      lbl: MESES_NOMES[d.getMonth()].slice(0,3) + ' · ' + d.getFullYear(),
+      parcelas: [],
+      recorrentes: [],
+    });
+  }
+
+  // distribui parcelas (lançamentos futuros que vêm com origem=parcela ou parcelaGrupo)
+  lancsFuturos.forEach(l => {
+    if(l.origem === 'recorrencia') return; // recorrências contamos à parte
+    const d = new Date(l.ts);
+    const m = meses.find(x => x.ano === d.getFullYear() && x.mes === d.getMonth());
+    if(m) m.parcelas.push(l);
+  });
+
+  // distribui recorrentes (todo mês cai uma vez de cada)
+  meses.forEach(m => {
+    recorrentes.forEach(r => {
+      // só conta se a data de início <= esse mês
+      const ini = r.dataInicio ? new Date(r.dataInicio) : new Date(0);
+      const mesData = new Date(m.ano, m.mes, 1);
+      if(ini <= mesData){
+        m.recorrentes.push(r);
+      }
+    });
+  });
+
+  // renda projetada: pós-julho/26 = R$ 7.804,93; antes = ~R$ 14.000
+  function rendaDoMes(ano, mes){
+    if(ano > 2026 || (ano === 2026 && mes >= 6)) return 7804.93;
+    return 14000;
+  }
+
+  // máximo absoluto pra escalar barras
+  const totaisMes = meses.map(m => {
+    const tp = m.parcelas.reduce((a,l)=>a+(l.valor||0), 0);
+    const tr = m.recorrentes.reduce((a,r)=>a+(r.valor||0), 0);
+    return { total: tp+tr, renda: rendaDoMes(m.ano, m.mes), parc: tp, recur: tr };
+  });
+  const maxAbs = Math.max(1, ...totaisMes.map(x => x.total));
+
+  // renderiza
+  if(maxAbs === 1){ // ninguém tem compromisso
+    box.innerHTML = `<div class="comp-row empty-row">Nenhuma parcela ou gasto recorrente agendado pros próximos 12 meses.</div>`;
+    return;
+  }
+
+  box.innerHTML = meses.map((m, i) => {
+    const t = totaisMes[i];
+    if(t.total === 0){
+      return `
+        <div class="comp-row">
+          <div class="comp-top">
+            <span class="comp-mes">${m.lbl}</span>
+            <span class="comp-total" style="color:var(--soft)">livre</span>
+          </div>
+        </div>
+      `;
+    }
+    const pctTotal = (t.total / t.renda) * 100;
+    const isAlerta = pctTotal > 30;
+    // largura proporcional ao máximo absoluto (não à renda)
+    const escala = (t.total / maxAbs) * 100;
+    const pctParc = t.total > 0 ? (t.parc / t.total) * escala : 0;
+    const pctRecur = t.total > 0 ? (t.recur / t.total) * escala : 0;
+
+    const detalhesParc = m.parcelas.map(l =>
+      `<div class="comp-detail-item"><span>${l.descricao||'—'}<span class="tag">parcela</span></span><span>${fmt(l.valor)}</span></div>`
+    ).join('');
+    const detalhesRecur = m.recorrentes.map(r =>
+      `<div class="comp-detail-item"><span>${r.descricao}<span class="tag">mensal</span></span><span>${fmt(r.valor)}</span></div>`
+    ).join('');
+
+    return `
+      <div class="comp-row ${isAlerta?'alert':''}" data-mes="${m.key}">
+        <div class="comp-top">
+          <span class="comp-mes">${m.lbl}${m.ano === 2026 && m.mes === 6 ? '<em>renda nova</em>' : ''}</span>
+          <span class="comp-total">${fmt(t.total)}</span>
+        </div>
+        <div class="comp-bar">
+          <div class="comp-bar-parc" style="width:${pctParc}%"></div>
+          <div class="comp-bar-recur" style="width:${pctRecur}%"></div>
+        </div>
+        <div class="comp-pct ${isAlerta?'alert-txt':''}">
+          ${pctTotal.toFixed(0)}% da renda do mês (${fmt(t.renda)}) já comprometido
+        </div>
+        <div class="comp-detail">
+          ${detalhesParc}${detalhesRecur}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // expandir detalhe ao tocar
+  box.querySelectorAll('.comp-row[data-mes]').forEach(el => {
+    el.onclick = () => el.classList.toggle('open');
+  });
 }
 
 function renderProjOrcamento(){

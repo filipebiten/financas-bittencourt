@@ -386,3 +386,26 @@ input,select{font-family:inherit;color:var(--ink)}
 .recur-check{background:var(--green-bg);padding:12px 14px;border-radius:11px;margin-top:8px}
 .recur-check span em{color:var(--soft);font-style:italic;font-size:13px;display:block;margin-top:2px}
 .lanc-recur-tag{display:inline-flex;align-items:center;font-size:10px;color:var(--green);font-style:italic;margin-left:6px;letter-spacing:.05em}
+
+/* ---- v2.5: Compromissos futuros ---- */
+.comp-legend{display:flex;gap:18px;font-size:12px;color:var(--soft);margin-bottom:14px}
+.comp-list{display:flex;flex-direction:column;gap:8px}
+.comp-row{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.comp-row.alert{border-left:3px solid var(--red);background:var(--red-bg)}
+.comp-row.empty-row{padding:18px;text-align:center;color:var(--soft);font-style:italic;font-size:13px;border:1.5px dashed var(--line);background:transparent}
+.comp-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.comp-mes{font-family:'Fraunces',serif;font-weight:500;font-size:14px;color:var(--ink)}
+.comp-mes em{font-style:italic;color:var(--soft);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-left:8px}
+.comp-total{font-family:'Fraunces',serif;font-weight:500;font-size:15px}
+.comp-bar{height:10px;background:var(--paper-deep);border-radius:99px;overflow:hidden;display:flex}
+.comp-bar-parc{height:100%;background:var(--warm);transition:width .5s}
+.comp-bar-recur{height:100%;background:var(--green);transition:width .5s}
+.comp-pct{font-size:11px;color:var(--soft);margin-top:6px;font-style:italic}
+.comp-pct.alert-txt{color:var(--red);font-style:normal;font-weight:500}
+.comp-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);display:none}
+.comp-row.open .comp-detail{display:block}
+.comp-detail-item{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--ink-soft)}
+.comp-detail-item .tag{font-size:10px;color:var(--soft);margin-left:6px}
+
+/* ---- v2.5: Histórico interativo ---- */
+.chart-month-marker{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--ink);border:3px solid var(--paper);transform:translate(-50%,-50%);pointer-events:none;transition:left .3s,top .3s;box-shadow:0 0 0 1px var(--ink)}
