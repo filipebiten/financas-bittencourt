@@ -2272,6 +2272,39 @@ function bindModalCofre(){
 }
 
 // ============================================================
+// SEED MAIO/26 — botão temporário pra importar tudo de maio
+// ============================================================
+function bindSeedMaio(){
+  const btn = document.getElementById('btnSeedMaio');
+  const status = document.getElementById('seedStatus');
+  const box = document.getElementById('seedBox');
+  if(!btn) return;
+
+  // Se já foi executado, marca a caixa como "concluído"
+  getDoc(doc(db, 'config', 'seedMaio26Executado')).then(snap => {
+    if(snap.exists()){
+      box.classList.add('done');
+      status.innerHTML = `<span style="color:var(--green)">Já importado em ${new Date(snap.data().executadoEm).toLocaleDateString('pt-BR')}</span>`;
+    }
+  }).catch(()=>{});
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'Importando… isso pode levar uns 30 segundos.';
+    try {
+      const mod = await import('./seed-maio26.js');
+      await mod.executaSeedMaio(db, toast);
+      status.innerHTML = '<span style="color:var(--green)">✓ Importação concluída! Confira nas abas Hoje, Histórico e Lançamentos.</span>';
+      box.classList.add('done');
+    } catch(err){
+      console.error(err);
+      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
+      btn.disabled = false;
+    }
+  };
+}
+
+// ============================================================
 // BOOTSTRAP
 // ============================================================
 async function init(){
@@ -2287,6 +2320,7 @@ async function init(){
     bindModalCategoria();
     bindModalNovoAtivo();
     bindModalCofre();
+    bindSeedMaio();
 
     await semeaSeNecessario();
     escutaCategorias();
