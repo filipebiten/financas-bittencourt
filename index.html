@@ -59,9 +59,19 @@
     <!-- ========= TAB HOJE ========= -->
     <section class="view" id="view-hoje">
 
+      <!-- Navegação por mês -->
+      <div class="mes-nav">
+        <button class="mes-nav-btn" id="mesAnterior" aria-label="Mês anterior">←</button>
+        <div class="mes-nav-center">
+          <div class="mes-nav-title" id="mesNavTitle">—</div>
+          <div class="mes-nav-sub" id="mesNavSub">—</div>
+        </div>
+        <button class="mes-nav-btn" id="mesProximo" aria-label="Próximo mês">→</button>
+      </div>
+
       <!-- Termômetro principal -->
       <div class="thermo">
-        <div class="thermo-label">Gastamos este mês</div>
+        <div class="thermo-label" id="thermoLabel">Gastamos este mês</div>
         <div class="thermo-value">
           <span class="cur">R$</span><span id="gastoMes">0</span>
         </div>
@@ -223,12 +233,21 @@
 
     <!-- ========= TAB LANÇAMENTOS ========= -->
     <section class="view hidden" id="view-lancamentos">
-      <!-- BOTÃO TEMPORÁRIO DE SEED MAIO/26 — remover depois -->
-      <div class="seed-box" id="seedBox">
-        <div class="seed-title">🌱 Importar maio/26</div>
-        <div class="seed-sub">Botão único pra carregar todos os gastos de maio (recorrências, parcelas, avulsos) de uma vez. Roda só uma vez.</div>
-        <button class="btn-primary" id="btnSeedMaio">Importar maio/26</button>
-        <div class="seed-status" id="seedStatus"></div>
+      <!-- SEEDS TEMPORÁRIOS — somem após execução -->
+      <div id="seedsWrapper">
+        <div class="seed-box" id="seedBoxMaio">
+          <div class="seed-title">🌱 Importar maio/26</div>
+          <div class="seed-sub">Botão único pra carregar todos os gastos de maio (recorrências, parcelas, avulsos) de uma vez. Roda só uma vez.</div>
+          <button class="btn-primary" id="btnSeedMaio">Importar maio/26</button>
+          <div class="seed-status" id="seedStatus"></div>
+        </div>
+
+        <div class="seed-box" id="seedBoxV27">
+          <div class="seed-title">🌱 Ajustes finais (v2.7)</div>
+          <div class="seed-sub">Adiciona: PIX Bia (junho), 5 gastos da fatura fechada (maio), aluguel corrigido pra R$ 1.899,46, fim da Unimed (jul), fim Minas Brasil (set), aluguel novo R$ 1.875,23 a partir de julho. Roda só uma vez.</div>
+          <button class="btn-primary" id="btnSeedV27">Aplicar ajustes</button>
+          <div class="seed-status" id="seedV27Status"></div>
+        </div>
       </div>
 
       <h2 class="sec-title">Importar fatura ou extrato</h2>
@@ -341,6 +360,12 @@
       <div class="voice-ex">ex: "gastei 80 no posto" · "150 no mercado"</div>
 
       <div class="form">
+        <label class="lbl">Tipo</label>
+        <div class="tipo-toggle">
+          <div class="tipo-opt sel" data-tipo="gasto">💸 Gasto</div>
+          <div class="tipo-opt credito" data-tipo="credito">💰 Crédito</div>
+        </div>
+
         <label class="lbl">Valor</label>
         <div class="money-input">
           <span>R$</span>

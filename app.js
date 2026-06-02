@@ -374,7 +374,12 @@ async function escutaCategorias(){
   });
 }
 
+let _unsubLancamentos = null;
+
 async function escutaLancamentos(){
+  // cancela escuta anterior se houver (re-subscrição ao trocar de mês)
+  if(_unsubLancamentos){ _unsubLancamentos(); _unsubLancamentos = null; }
+
   const ini = new Date(state.ano, state.mes, 1).getTime();
   const fim = new Date(state.ano, state.mes+1, 0, 23,59,59).getTime();
   const q = query(
@@ -383,9 +388,9 @@ async function escutaLancamentos(){
     where('ts', '<=', fim),
     orderBy('ts', 'desc')
   );
-  onSnapshot(q, (snap) => {
+  _unsubLancamentos = onSnapshot(q, (snap) => {
     state.lancamentos = snap.docs.map(d => ({id: d.id, ...d.data()}));
-    // atualizar cache do mês atual (Plano A: histórico real soma sobre semente)
+    // atualizar cache do mês visto (Plano A: histórico real soma sobre semente)
     const key = `${state.ano}-${(state.mes+1).toString().padStart(2,'0')}`;
     const totais = {};
     state.lancamentos.forEach(l => {
@@ -399,6 +404,20 @@ async function escutaLancamentos(){
     console.error('Erro escutando lançamentos:', err);
     markSync('err');
   });
+}
+
+// chamado quando o usuário troca de mês com as setinhas
+function mudaMes(delta){
+  const novoMes = state.mes + delta;
+  let m = novoMes, a = state.ano;
+  if(m < 0){ m += 12; a -= 1; }
+  if(m > 11){ m -= 12; a += 1; }
+  state.mes = m;
+  state.ano = a;
+  // limpa lançamentos enquanto carrega
+  state.lancamentos = [];
+  render();
+  escutaLancamentos();
 }
 
 async function escutaEstabelecimentos(){
@@ -459,6 +478,10 @@ async function materializaRecorrenciasDoMes(){
     // checa data inicial — não materializa antes do começo
     const dataInicio = rec.dataInicio ? new Date(rec.dataInicio) : null;
     if(dataInicio && dataInicio > hoje) continue;
+
+    // checa data final — não materializa depois do fim
+    const dataFim = rec.dataFim ? new Date(rec.dataFim) : null;
+    if(dataFim && hoje > dataFim) continue;
 
     // dia do mês: pega do rec.diaDoMes ou usa dia 1
     const dia = Math.min(rec.diaDoMes || 1, new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate());
@@ -673,27 +696,71 @@ function renderHoje(){
   const propDia = diaDoMes() / diasNoMes();
   document.getElementById('thermoMarker').style.left = (propDia * 100) + '%';
 
-  // Projeção: no ritmo atual, fecha em quanto?
-  const dia = diaDoMes();
-  const total = diasNoMes();
-  const projecao = dia > 0 ? (gastoTotal / dia) * total : 0;
+  // determinar se o mês visto é o atual, passado ou futuro
+  const hoje = new Date();
+  const ehAtual = (state.ano === hoje.getFullYear() && state.mes === hoje.getMonth());
+  const ehPassado = (state.ano < hoje.getFullYear()) || (state.ano === hoje.getFullYear() && state.mes < hoje.getMonth());
+  const ehFuturo = !ehAtual && !ehPassado;
+
+  // Projeção: no ritmo atual, fecha em quanto? (só pro mês atual)
   const elRitmo = document.getElementById('ritmoFech');
-  const fechaMaior = projecao > tetoTotal;
-  elRitmo.textContent = `Fecha em ${fmt(projecao)}`;
-  elRitmo.className = 'foot-val ' + (fechaMaior ? 'danger' : 'ok');
+  const elRitmoLbl = elRitmo.parentElement.querySelector('.foot-lbl');
+  if(ehAtual){
+    const dia = diaDoMes();
+    const total = diasNoMes();
+    const projecao = dia > 0 ? (gastoTotal / dia) * total : 0;
+    const fechaMaior = projecao > tetoTotal;
+    elRitmoLbl.textContent = 'Ritmo do mês';
+    elRitmo.textContent = `Fecha em ${fmt(projecao)}`;
+    elRitmo.className = 'foot-val ' + (fechaMaior ? 'danger' : 'ok');
+  } else if(ehPassado){
+    elRitmoLbl.textContent = 'Mês fechado';
+    elRitmo.textContent = fmt(gastoTotal);
+    elRitmo.className = 'foot-val';
+  } else {
+    elRitmoLbl.textContent = 'Já agendado';
+    elRitmo.textContent = fmt(gastoTotal);
+    elRitmo.className = 'foot-val';
+  }
 
   // Disponível
   const falta = tetoTotal - gastoTotal;
   document.getElementById('dispMes').textContent = falta >= 0 ? fmt(falta) : `−${fmt(Math.abs(falta))}`;
 
-  // Aviso julho
-  const dias = diasAteJulho();
-  document.getElementById('diasJulho').textContent = dias;
-  if(dias <= 0 || dias > 90){
-    document.getElementById('warnJulho').style.display = 'none';
+  // Marcador do dia: só aparece no mês atual
+  document.getElementById('thermoMarker').style.display = ehAtual ? '' : 'none';
+
+  // Label do termômetro
+  const thermoLbl = document.getElementById('thermoLabel');
+  if(thermoLbl){
+    if(ehAtual) thermoLbl.textContent = 'Gastamos este mês';
+    else if(ehPassado) thermoLbl.textContent = `Gastamos em ${MESES_NOMES[state.mes].toLowerCase()}`;
+    else thermoLbl.textContent = `Já comprometido em ${MESES_NOMES[state.mes].toLowerCase()}`;
   }
 
-  // Lista categorias
+  // Navegação por mês — atualiza centro
+  const navTitle = document.getElementById('mesNavTitle');
+  const navSub = document.getElementById('mesNavSub');
+  const navCenter = navTitle ? navTitle.parentElement : null;
+  if(navTitle){
+    navTitle.textContent = `${MESES_NOMES[state.mes]} · ${state.ano}`;
+    navSub.textContent = ehAtual ? 'mês atual' : (ehPassado ? 'mês passado' : 'mês futuro');
+    if(navCenter){
+      navCenter.classList.remove('futuro','passado');
+      if(ehFuturo) navCenter.classList.add('futuro');
+      if(ehPassado) navCenter.classList.add('passado');
+    }
+  }
+
+  // Aviso julho — só no mês atual e se estiver chegando
+  const warn = document.getElementById('warnJulho');
+  if(warn){
+    const dias = diasAteJulho();
+    document.getElementById('diasJulho').textContent = dias;
+    warn.style.display = (ehAtual && dias > 0 && dias <= 90) ? '' : 'none';
+  }
+
+  // Lista categorias com drop-down
   const list = document.getElementById('catsList');
   list.innerHTML = '';
   state.categorias.forEach(cat => {
@@ -704,18 +771,50 @@ function renderHoje(){
     if(p >= 0.9){ cls = 'r'; clsFill = 'r'; }
     else if(p >= 0.7){ cls = 'a'; clsFill = 'a'; }
 
+    // lançamentos desta categoria neste mês
+    const lancsCat = state.lancamentos
+      .filter(l => (l.categoriaId || 'outros') === cat.id)
+      .sort((a,b) => (b.ts||0) - (a.ts||0));
+
     const el = document.createElement('div');
     el.className = 'cat';
     el.innerHTML = `
       <div class="cat-left">
-        <div class="cat-name"><span class="cat-dot ${cls}"></span>${cat.icone||''} ${cat.nome}</div>
+        <div class="cat-name"><span class="cat-dot ${cls}"></span>${cat.icone||''} ${cat.nome}<span class="cat-chevron">›</span></div>
         <div class="cat-bar"><div class="cat-bar-fill ${clsFill}" style="width:${Math.min(100,p*100)}%"></div></div>
       </div>
       <div class="cat-right">
         <div class="cat-spent">${fmt(gasto)}</div>
         <div class="cat-of">de ${fmt(teto)}</div>
       </div>
+      <div class="cat-lancs">
+        ${lancsCat.length === 0
+          ? `<div class="cat-lanc-empty">Nenhum lançamento nesta categoria</div>`
+          : lancsCat.map(l => {
+              const d = new Date(l.ts);
+              const dataLbl = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}`;
+              const ehCredito = (l.valor||0) < 0;
+              const valStr = ehCredito ? `+${fmt(Math.abs(l.valor))}` : fmt(l.valor||0);
+              const cartaoTxt = l.cartao ? ` · ••${l.cartao}` : '';
+              const tagRec = l.origem === 'recorrencia' ? ' <span class="lanc-recur-tag">🔁</span>' : '';
+              const tagCred = ehCredito ? ' <span class="lanc-credito-tag">crédito</span>' : '';
+              return `
+                <div class="cat-lanc-item" data-id="${l.id}">
+                  <span class="lanc-desc"><span class="lanc-data">${dataLbl}</span>${l.descricao||'—'}${cartaoTxt}${tagRec}${tagCred}</span>
+                  <span class="lanc-val ${ehCredito?'credito':''}">${valStr}</span>
+                </div>
+              `;
+            }).join('')
+        }
+      </div>
     `;
+
+    // toggle ao tocar (mas não nos lançamentos internos)
+    el.addEventListener('click', (e) => {
+      if(e.target.closest('.cat-lanc-item')) return;
+      el.classList.toggle('expanded');
+    });
+
     list.appendChild(el);
   });
 }
@@ -1332,10 +1431,11 @@ async function renderCompromissos(){
   // distribui recorrentes (todo mês cai uma vez de cada)
   meses.forEach(m => {
     recorrentes.forEach(r => {
-      // só conta se a data de início <= esse mês
+      // só conta se data de início <= esse mês E data de fim >= esse mês (se houver)
       const ini = r.dataInicio ? new Date(r.dataInicio) : new Date(0);
+      const fim = r.dataFim ? new Date(r.dataFim) : null;
       const mesData = new Date(m.ano, m.mes, 1);
-      if(ini <= mesData){
+      if(ini <= mesData && (!fim || fim >= mesData)){
         m.recorrentes.push(r);
       }
     });
@@ -1612,6 +1712,13 @@ function bindFab(){
   document.getElementById('btnAdd').onclick = () => abreModalAdd();
 }
 
+function bindMesNav(){
+  const ant = document.getElementById('mesAnterior');
+  const prox = document.getElementById('mesProximo');
+  if(ant) ant.onclick = () => mudaMes(-1);
+  if(prox) prox.onclick = () => mudaMes(+1);
+}
+
 function abreModalAdd(){
   document.getElementById('inpValor').value = '';
   document.getElementById('inpDesc').value = '';
@@ -1620,6 +1727,10 @@ function abreModalAdd(){
   document.getElementById('parcelaTip').textContent = '';
   document.getElementById('inpRecorrente').checked = false;
   document.getElementById('recurTip').textContent = '';
+  // resetar tipo pra Gasto
+  document.querySelectorAll('.tipo-opt').forEach(el => {
+    el.classList.toggle('sel', el.dataset.tipo === 'gasto');
+  });
   // data padrão = hoje
   const hoje = new Date().toISOString().split('T')[0];
   document.getElementById('inpData').value = hoje;
@@ -1659,18 +1770,30 @@ function bindModais(){
   });
   document.getElementById('inpParcelas').addEventListener('change', atualizaParcelaTip);
 
+  // Toggle gasto/crédito
+  document.querySelectorAll('.tipo-opt').forEach(opt => {
+    opt.onclick = () => {
+      document.querySelectorAll('.tipo-opt').forEach(o => o.classList.remove('sel'));
+      opt.classList.add('sel');
+    };
+  });
+
   // BOTÃO DE VOZ — Web Speech API com fallback pro teclado (iOS)
   document.getElementById('voiceBtn').onclick = iniciaVoz;
 
   document.getElementById('btnSalvar').onclick = async () => {
-    const valor = parseFloat(document.getElementById('inpValor').value.replace(',', '.'));
+    const valorBruto = parseFloat(document.getElementById('inpValor').value.replace(',', '.'));
     const desc = document.getElementById('inpDesc').value.trim();
     const cat = document.getElementById('inpCat').value;
     const data = document.getElementById('inpData').value;
     const parcelas = parseInt(document.getElementById('inpParcelas').value) || 1;
     const recorrente = document.getElementById('inpRecorrente').checked;
+    // tipo: gasto (positivo) ou crédito (negativo)
+    const tipoSel = document.querySelector('.tipo-opt.sel');
+    const ehCredito = tipoSel && tipoSel.dataset.tipo === 'credito';
+    const valor = ehCredito ? -Math.abs(valorBruto) : Math.abs(valorBruto);
 
-    if(!valor || valor <= 0){
+    if(!valorBruto || valorBruto <= 0){
       toast('Informe um valor válido');
       return;
     }
@@ -1682,6 +1805,11 @@ function bindModais(){
     // Recorrente + parcelado: não faz sentido junto
     if(recorrente && parcelas > 1){
       toast('Recorrente e parcelado não podem juntos — desmarque um');
+      return;
+    }
+    // Crédito não pode ser parcelado nem recorrente
+    if(ehCredito && (recorrente || parcelas > 1)){
+      toast('Crédito é único — não pode ser parcelado nem recorrente');
       return;
     }
 
@@ -1706,7 +1834,7 @@ function bindModais(){
           await criaRecorrencia({ valor, descricao: desc, categoriaId: catEscolhida, diaDoMes: dia });
         }
         fechaModais();
-        toast(recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo'));
+        toast(ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo')));
       };
       return;
     }
@@ -1716,7 +1844,7 @@ function bindModais(){
       await criaRecorrencia({ valor, descricao: desc, categoriaId: cat, diaDoMes: dia });
     }
     fechaModais();
-    toast(recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo'));
+    toast(ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo')));
   };
 
   // Tip da recorrência
@@ -2277,14 +2405,13 @@ function bindModalCofre(){
 function bindSeedMaio(){
   const btn = document.getElementById('btnSeedMaio');
   const status = document.getElementById('seedStatus');
-  const box = document.getElementById('seedBox');
+  const box = document.getElementById('seedBoxMaio');
   if(!btn) return;
 
-  // Se já foi executado, marca a caixa como "concluído"
+  // Se já foi executado, esconde a caixa
   getDoc(doc(db, 'config', 'seedMaio26Executado')).then(snap => {
-    if(snap.exists()){
-      box.classList.add('done');
-      status.innerHTML = `<span style="color:var(--green)">Já importado em ${new Date(snap.data().executadoEm).toLocaleDateString('pt-BR')}</span>`;
+    if(snap.exists() && box){
+      box.style.display = 'none';
     }
   }).catch(()=>{});
 
@@ -2295,7 +2422,37 @@ function bindSeedMaio(){
       const mod = await import('./seed-maio26.js');
       await mod.executaSeedMaio(db, toast);
       status.innerHTML = '<span style="color:var(--green)">✓ Importação concluída! Confira nas abas Hoje, Histórico e Lançamentos.</span>';
-      box.classList.add('done');
+      // some após 3s
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
+    } catch(err){
+      console.error(err);
+      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
+      btn.disabled = false;
+    }
+  };
+}
+
+function bindSeedV27(){
+  const btn = document.getElementById('btnSeedV27');
+  const status = document.getElementById('seedV27Status');
+  const box = document.getElementById('seedBoxV27');
+  if(!btn) return;
+
+  // Se já foi executado, esconde a caixa
+  getDoc(doc(db, 'config', 'seedV27Executado')).then(snap => {
+    if(snap.exists() && box){
+      box.style.display = 'none';
+    }
+  }).catch(()=>{});
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'Aplicando ajustes…';
+    try {
+      const mod = await import('./seed-v27.js');
+      await mod.executaSeedV27(db, toast);
+      status.innerHTML = '<span style="color:var(--green)">✓ Ajustes aplicados!</span>';
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
     } catch(err){
       console.error(err);
       status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
@@ -2313,6 +2470,7 @@ async function init(){
 
     bindTabs();
     bindFab();
+    bindMesNav();
     bindModais();
     bindModalAtivo();
     bindProjecaoSliders();
@@ -2321,6 +2479,7 @@ async function init(){
     bindModalNovoAtivo();
     bindModalCofre();
     bindSeedMaio();
+    bindSeedV27();
 
     await semeaSeNecessario();
     escutaCategorias();
@@ -2341,4 +2500,4 @@ async function init(){
 }
 
 // dá um instante pro splash sumir
-setTimeout(init, 1300);
+window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE,MESES_NOMES}; window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; setTimeout(init, 1300);
