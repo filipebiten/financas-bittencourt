@@ -459,50 +459,76 @@ async function escutaRecorrencias(){
   });
 }
 
+// Flag em memória pra evitar reentrada simultânea
+let _materializandoAgora = false;
+
 async function materializaRecorrenciasDoMes(){
   if(!state.recorrencias || state.recorrencias.length === 0) return;
-  const hoje = new Date();
-  const mesKey = `${hoje.getFullYear()}-${(hoje.getMonth()+1).toString().padStart(2,'0')}`;
-  const batch = writeBatch(db);
-  let criados = 0;
+  if(_materializandoAgora) return; // evita disparos concorrentes
+  _materializandoAgora = true;
 
-  for(const rec of state.recorrencias){
-    // Já existe lançamento desta recorrência neste mês?
-    const jaExiste = state.lancamentos.some(l =>
-      l.recorrenciaId === rec.id &&
-      new Date(l.ts).getFullYear() === hoje.getFullYear() &&
-      new Date(l.ts).getMonth() === hoje.getMonth()
+  try {
+    const hoje = new Date();
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1).getTime();
+    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0, 23, 59, 59).getTime();
+
+    // 1. Buscar do FIRESTORE (não do state) os lançamentos do mês corrente
+    //    que vieram de recorrência. Assim independe de qual mês está aberto na UI.
+    const qMes = query(
+      collection(db, 'lancamentos'),
+      where('ts', '>=', inicioMes),
+      where('ts', '<=', fimMes)
     );
-    if(jaExiste) continue;
-
-    // checa data inicial — não materializa antes do começo
-    const dataInicio = rec.dataInicio ? new Date(rec.dataInicio) : null;
-    if(dataInicio && dataInicio > hoje) continue;
-
-    // checa data final — não materializa depois do fim
-    const dataFim = rec.dataFim ? new Date(rec.dataFim) : null;
-    if(dataFim && hoje > dataFim) continue;
-
-    // dia do mês: pega do rec.diaDoMes ou usa dia 1
-    const dia = Math.min(rec.diaDoMes || 1, new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate());
-    const dataLanc = new Date(hoje.getFullYear(), hoje.getMonth(), dia, 12, 0);
-
-    const ref = doc(collection(db, 'lancamentos'));
-    batch.set(ref, {
-      valor: rec.valor,
-      descricao: rec.descricao,
-      categoriaId: rec.categoriaId,
-      ts: dataLanc.getTime(),
-      data: dataLanc.toISOString(),
-      criadoEm: Date.now(),
-      recorrenciaId: rec.id,
-      origem: 'recorrencia',
+    const snapMes = await getDocs(qMes);
+    const recIdsJaCriados = new Set();
+    snapMes.docs.forEach(d => {
+      const data = d.data();
+      if(data.recorrenciaId) recIdsJaCriados.add(data.recorrenciaId);
     });
-    criados++;
-  }
-  if(criados > 0){
-    await batch.commit();
-    toast(`${criados} gasto${criados>1?'s':''} recorrente${criados>1?'s':''} adicionado${criados>1?'s':''} este mês`);
+
+    const batch = writeBatch(db);
+    let criados = 0;
+
+    for(const rec of state.recorrencias){
+      // Já existe lançamento desta recorrência neste mês? (fonte: Firestore)
+      if(recIdsJaCriados.has(rec.id)) continue;
+
+      // checa data inicial — não materializa antes do começo
+      const dataInicio = rec.dataInicio ? new Date(rec.dataInicio) : null;
+      if(dataInicio && dataInicio > hoje) continue;
+
+      // checa data final — não materializa depois do fim
+      const dataFim = rec.dataFim ? new Date(rec.dataFim) : null;
+      if(dataFim && hoje > dataFim) continue;
+
+      // dia do mês: pega do rec.diaDoMes ou usa dia 1
+      const dia = Math.min(rec.diaDoMes || 1, new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate());
+      const dataLanc = new Date(hoje.getFullYear(), hoje.getMonth(), dia, 12, 0);
+
+      const ref = doc(collection(db, 'lancamentos'));
+      batch.set(ref, {
+        valor: rec.valor,
+        descricao: rec.descricao,
+        categoriaId: rec.categoriaId,
+        cartao: rec.cartao || null,
+        ts: dataLanc.getTime(),
+        data: dataLanc.toISOString(),
+        criadoEm: Date.now(),
+        recorrenciaId: rec.id,
+        origem: 'recorrencia',
+      });
+      criados++;
+      // marca pra não criar de novo no mesmo loop
+      recIdsJaCriados.add(rec.id);
+    }
+    if(criados > 0){
+      await batch.commit();
+      toast(`${criados} gasto${criados>1?'s':''} recorrente${criados>1?'s':''} adicionado${criados>1?'s':''} este mês`);
+    }
+  } catch(err){
+    console.error('Erro materializando recorrências:', err);
+  } finally {
+    _materializandoAgora = false;
   }
 }
 
@@ -2461,6 +2487,82 @@ function bindSeedV27(){
   };
 }
 
+function bindCleanup(){
+  const btn = document.getElementById('btnCleanup');
+  const status = document.getElementById('cleanupStatus');
+  const box = document.getElementById('seedBoxCleanup');
+  if(!btn) return;
+
+  getDoc(doc(db, 'config', 'cleanupRecorrentesV1')).then(snap => {
+    if(snap.exists() && box){
+      box.style.display = 'none';
+    }
+  }).catch(()=>{});
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'Limpando duplicatas…';
+    try {
+      const mod = await import('./cleanup-recorrentes.js');
+      await mod.executaLimpezaRecorrentes(db, toast);
+      status.innerHTML = '<span style="color:var(--green)">✓ Limpeza concluída!</span>';
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
+    } catch(err){
+      console.error(err);
+      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
+      btn.disabled = false;
+    }
+  };
+}
+
+function bindSeedJuros(){
+  const btn = document.getElementById('btnSeedJuros');
+  const status = document.getElementById('jurosStatus');
+  const box = document.getElementById('seedBoxJuros');
+  if(!btn) return;
+
+  getDoc(doc(db, 'config', 'seedJurosExecutado')).then(snap => {
+    if(snap.exists() && box){
+      box.style.display = 'none';
+    }
+  }).catch(()=>{});
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'Adicionando lançamentos de juros…';
+    try {
+      const juros = [
+        {valor: 49.83,  desc: 'Juros cheque especial'},
+        {valor: 12.59,  desc: 'IOF cheque especial'},
+        {valor: 398.36, desc: 'Juros cheque especial'},
+      ];
+      const batch = writeBatch(db);
+      const ts = new Date(2026, 5, 1, 12, 0).getTime();
+      for(const j of juros){
+        const ref = doc(collection(db, 'lancamentos'));
+        batch.set(ref, {
+          valor: j.valor,
+          descricao: j.desc,
+          categoriaId: 'bancojuros',
+          cartao: null,
+          ts: ts,
+          data: new Date(ts).toISOString(),
+          criadoEm: Date.now(),
+          origem: 'seed-juros',
+        });
+      }
+      await batch.commit();
+      await setDoc(doc(db, 'config', 'seedJurosExecutado'), { executadoEm: Date.now() });
+      status.innerHTML = '<span style="color:var(--green)">✓ 3 lançamentos de juros adicionados (total R$ 460,78)</span>';
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
+    } catch(err){
+      console.error(err);
+      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
+      btn.disabled = false;
+    }
+  };
+}
+
 // ============================================================
 // BOOTSTRAP
 // ============================================================
@@ -2480,6 +2582,8 @@ async function init(){
     bindModalCofre();
     bindSeedMaio();
     bindSeedV27();
+    bindCleanup();
+    bindSeedJuros();
 
     await semeaSeNecessario();
     escutaCategorias();
