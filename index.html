@@ -96,6 +96,16 @@
         </div>
       </div>
 
+      <!-- Saldo em conta -->
+      <div class="saldo-card" id="saldoCard">
+        <div class="saldo-left">
+          <div class="saldo-lbl">Saldo em conta</div>
+          <div class="saldo-val" id="saldoVal">—</div>
+          <div class="saldo-sub" id="saldoSub">toque pra atualizar</div>
+        </div>
+        <div class="saldo-edit">✎</div>
+      </div>
+
       <!-- Aviso julho -->
       <div class="warn" id="warnJulho">
         <div class="warn-mark">!</div>
@@ -233,34 +243,13 @@
 
     <!-- ========= TAB LANÇAMENTOS ========= -->
     <section class="view hidden" id="view-lancamentos">
-      <!-- SEEDS TEMPORÁRIOS — somem após execução -->
+      <!-- SEED ÚNICO v2.8 — some após executar -->
       <div id="seedsWrapper">
-        <div class="seed-box" id="seedBoxMaio">
-          <div class="seed-title">🌱 Importar maio/26</div>
-          <div class="seed-sub">Botão único pra carregar todos os gastos de maio (recorrências, parcelas, avulsos) de uma vez. Roda só uma vez.</div>
-          <button class="btn-primary" id="btnSeedMaio">Importar maio/26</button>
-          <div class="seed-status" id="seedStatus"></div>
-        </div>
-
-        <div class="seed-box" id="seedBoxV27">
-          <div class="seed-title">🌱 Ajustes finais (v2.7)</div>
-          <div class="seed-sub">Adiciona: PIX Bia (junho), 5 gastos da fatura fechada (maio), aluguel corrigido pra R$ 1.899,46, fim da Unimed (jul), fim Minas Brasil (set), aluguel novo R$ 1.875,23 a partir de julho. Roda só uma vez.</div>
-          <button class="btn-primary" id="btnSeedV27">Aplicar ajustes</button>
-          <div class="seed-status" id="seedV27Status"></div>
-        </div>
-
-        <div class="seed-box" id="seedBoxCleanup">
-          <div class="seed-title">🧹 Limpar duplicatas de recorrentes</div>
-          <div class="seed-sub">Bug conhecido: recorrências apareceram 5x. Este botão remove as duplicatas mantendo apenas o lançamento original de cada mês. Seguro de rodar.</div>
-          <button class="btn-primary" id="btnCleanup">Limpar duplicatas</button>
-          <div class="seed-status" id="cleanupStatus"></div>
-        </div>
-
-        <div class="seed-box" id="seedBoxJuros">
-          <div class="seed-title">💸 Adicionar juros pendentes</div>
-          <div class="seed-sub">Adiciona 3 lançamentos de juros do cheque especial: R$ 49,83 + R$ 12,59 + R$ 398,36 = R$ 460,78 em junho/26, categoria Banco/Juros.</div>
-          <button class="btn-primary" id="btnSeedJuros">Adicionar juros</button>
-          <div class="seed-status" id="jurosStatus"></div>
+        <div class="seed-box" id="seedBoxV28">
+          <div class="seed-title">🌱 Importação inicial (v2.8)</div>
+          <div class="seed-sub">Importa tudo de maio/26: recorrências, parcelas, avulsos, juros, impostos. Inclui PIX Bia (junho) e saldo inicial. Limpe Firestore antes de rodar.</div>
+          <button class="btn-primary" id="btnSeedV28">Importar tudo</button>
+          <div class="seed-status" id="seedV28Status"></div>
         </div>
       </div>
 
@@ -601,6 +590,68 @@
 
         <button class="btn-primary" id="btnSalvarCofre">Salvar cofre</button>
         <button class="btn-danger hidden" id="btnDeletarCofre">Excluir cofre</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: EDITAR LANÇAMENTO ========= -->
+  <div class="modal hidden" id="modalEditarLanc">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Editar lançamento</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <label class="lbl">Valor</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="editValor">
+        </div>
+
+        <label class="lbl">Descrição</label>
+        <div class="text-input">
+          <input type="text" id="editDesc">
+        </div>
+
+        <label class="lbl">Categoria</label>
+        <select id="editCat" class="select"></select>
+
+        <label class="lbl">Data</label>
+        <input type="date" id="editData" class="select">
+
+        <label class="lbl">Cartão</label>
+        <select id="editCartao" class="select">
+          <option value="">— sem cartão (débito/PIX) —</option>
+          <option value="2913">•• 2913 (Filipe)</option>
+          <option value="3877">•• 3877 (Mari)</option>
+        </select>
+
+        <button class="btn-primary" id="btnSalvarEdit">Salvar alterações</button>
+        <button class="btn-danger" id="btnExcluirLanc">Excluir lançamento</button>
+        <button class="btn-danger hidden" id="btnExcluirRecorrencia">Excluir também a recorrência</button>
+      </div>
+    </div>
+  </div>
+  <!-- ========= MODAL: ATUALIZAR SALDO EM CONTA ========= -->
+  <div class="modal hidden" id="modalSaldo">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Saldo em conta</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <p class="aprende-text">Quanto tem na sua conta agora? Pode ser negativo (cheque especial).</p>
+        <label class="lbl">Saldo atual (R$)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="saldoInput" placeholder="0,00 ou -1.500,00">
+        </div>
+        <p class="aprende-text" style="font-size:12px;color:var(--soft);font-style:italic">
+          Atualize quando quiser — pra ter visão real de onde você está. O app não toca em nenhuma conta automaticamente.
+        </p>
+        <button class="btn-primary" id="btnSalvarSaldo">Salvar saldo</button>
       </div>
     </div>
   </div>

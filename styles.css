@@ -449,3 +449,13 @@ input,select{font-family:inherit;color:var(--ink)}
 .tipo-opt.sel{border-color:var(--ink);background:var(--ink);color:var(--paper)}
 .tipo-opt.credito.sel{border-color:var(--green);background:var(--green);color:var(--paper)}
 .lanc-credito-tag{display:inline-flex;align-items:center;font-size:10px;color:var(--green);font-style:italic;margin-left:6px;letter-spacing:.05em}
+
+/* ---- v2.8: Saldo em conta ---- */
+.saldo-card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 18px;margin-top:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:transform .15s}
+.saldo-card:active{transform:scale(.985)}
+.saldo-lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.saldo-val{font-family:'Fraunces',serif;font-weight:500;font-size:22px;letter-spacing:-.02em;margin-top:2px;line-height:1.1}
+.saldo-val.neg{color:var(--red)}
+.saldo-val.pos{color:var(--green)}
+.saldo-sub{font-size:11px;color:var(--soft);font-style:italic;margin-top:3px}
+.saldo-edit{color:var(--soft);font-size:18px}

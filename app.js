@@ -273,6 +273,8 @@ let state = {
   grao: null,
   cofres: [],
   recorrencias: [],
+  saldoConta: null,
+  saldoContaAtualizadoEm: null,
   mes: new Date().getMonth(),
   ano: new Date().getFullYear(),
 };
@@ -544,6 +546,25 @@ async function deletaRecorrencia(id){
   await deleteDoc(doc(db, 'recorrencias', id));
 }
 
+// ===== Saldo em conta =====
+async function escutaSaldo(){
+  onSnapshot(doc(db, 'config', 'saldoConta'), (snap) => {
+    if(snap.exists()){
+      const d = snap.data();
+      state.saldoConta = d.valor;
+      state.saldoContaAtualizadoEm = d.atualizadoEm;
+      render();
+    }
+  });
+}
+
+async function atualizaSaldo(valor){
+  await setDoc(doc(db, 'config', 'saldoConta'), {
+    valor: valor,
+    atualizadoEm: Date.now(),
+  });
+}
+
 // ===== CRUD categorias =====
 async function criaCategoria({id, nome, icone, teto}){
   const ref = doc(db, 'categorias', id);
@@ -677,6 +698,10 @@ async function deletaLancamento(id){
   await deleteDoc(doc(db, 'lancamentos', id));
 }
 
+async function atualizaLancamento(id, dados){
+  await updateDoc(doc(db, 'lancamentos', id), dados);
+}
+
 // ============================================================
 // RENDER
 // ============================================================
@@ -764,6 +789,31 @@ function renderHoje(){
     else thermoLbl.textContent = `Já comprometido em ${MESES_NOMES[state.mes].toLowerCase()}`;
   }
 
+  // Saldo em conta — mostra no card abaixo do termômetro
+  const saldoVal = document.getElementById('saldoVal');
+  const saldoSub = document.getElementById('saldoSub');
+  if(saldoVal){
+    if(state.saldoConta === null || state.saldoConta === undefined){
+      saldoVal.textContent = '—';
+      saldoVal.className = 'saldo-val';
+      if(saldoSub) saldoSub.textContent = 'toque pra adicionar';
+    } else {
+      const v = state.saldoConta;
+      saldoVal.textContent = v < 0 ? `−${fmt(Math.abs(v))}` : fmt(v);
+      saldoVal.className = 'saldo-val ' + (v < 0 ? 'neg' : 'pos');
+      if(saldoSub && state.saldoContaAtualizadoEm){
+        const d = new Date(state.saldoContaAtualizadoEm);
+        const hoje = new Date();
+        const diffH = Math.floor((hoje - d) / (1000*60*60));
+        let quando = '';
+        if(diffH < 1) quando = 'agora';
+        else if(diffH < 24) quando = `há ${diffH}h`;
+        else quando = `há ${Math.floor(diffH/24)}d`;
+        saldoSub.textContent = `atualizado ${quando}`;
+      }
+    }
+  }
+
   // Navegação por mês — atualiza centro
   const navTitle = document.getElementById('mesNavTitle');
   const navSub = document.getElementById('mesNavSub');
@@ -837,7 +887,13 @@ function renderHoje(){
 
     // toggle ao tocar (mas não nos lançamentos internos)
     el.addEventListener('click', (e) => {
-      if(e.target.closest('.cat-lanc-item')) return;
+      const lancEl = e.target.closest('.cat-lanc-item');
+      if(lancEl){
+        const lancId = lancEl.dataset.id;
+        const lanc = state.lancamentos.find(x => x.id === lancId);
+        if(lanc) abreModalEditarLanc(lanc);
+        return;
+      }
       el.classList.toggle('expanded');
     });
 
@@ -1331,26 +1387,91 @@ function renderLancamentos(){
       </div>
       <div class="lanc-val">${fmt(l.valor||0)}</div>
     `;
-    el.onclick = () => {
-      if(ehRecorrente){
-        const opts = ['1','2','cancel'];
-        const escolha = prompt(`"${l.descricao}" é um gasto mensal.\n\n1 = Excluir só este lançamento (este mês)\n2 = Excluir também a recorrência (não aparece mais nos próximos meses)\n\nDigite 1, 2 ou deixe vazio pra cancelar:`);
-        if(escolha === '1'){
-          deletaLancamento(l.id).then(() => toast('Lançamento excluído'));
-        } else if(escolha === '2'){
-          Promise.all([
-            deletaLancamento(l.id),
-            l.recorrenciaId ? deletaRecorrencia(l.recorrenciaId) : Promise.resolve()
-          ]).then(() => toast('Recorrência cancelada'));
-        }
-      } else {
-        if(confirm(`Excluir "${l.descricao}" (${fmt(l.valor)})?`)){
-          deletaLancamento(l.id).then(() => toast('Lançamento excluído'));
-        }
-      }
-    };
+    el.onclick = () => abreModalEditarLanc(l);
     box.appendChild(el);
   });
+}
+
+let _editandoLanc = null;
+
+function abreModalEditarLanc(l){
+  _editandoLanc = l;
+  const ehRec = l.origem === 'recorrencia';
+
+  document.getElementById('editValor').value = (Math.abs(l.valor||0)).toFixed(2).replace('.', ',');
+  document.getElementById('editDesc').value = l.descricao || '';
+
+  // popular categorias
+  const selCat = document.getElementById('editCat');
+  selCat.innerHTML = state.categorias.map(c =>
+    `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`
+  ).join('');
+  selCat.value = l.categoriaId || 'outros';
+
+  // data
+  const d = new Date(l.ts);
+  document.getElementById('editData').value = d.toISOString().split('T')[0];
+
+  // cartão
+  document.getElementById('editCartao').value = l.cartao || '';
+
+  // botão de excluir recorrência só aparece se for recorrente
+  const btnRec = document.getElementById('btnExcluirRecorrencia');
+  if(ehRec && l.recorrenciaId){
+    btnRec.classList.remove('hidden');
+  } else {
+    btnRec.classList.add('hidden');
+  }
+
+  document.getElementById('modalEditarLanc').classList.remove('hidden');
+}
+
+function bindModalEditarLanc(){
+  document.getElementById('btnSalvarEdit').onclick = async () => {
+    if(!_editandoLanc) return;
+    const valor = parseFloat(document.getElementById('editValor').value.replace(',', '.'));
+    const desc = document.getElementById('editDesc').value.trim();
+    const cat = document.getElementById('editCat').value;
+    const dataStr = document.getElementById('editData').value;
+    const cartao = document.getElementById('editCartao').value || null;
+    if(isNaN(valor) || !desc){
+      toast('Valor e descrição obrigatórios');
+      return;
+    }
+    // preserva sinal (crédito tem valor negativo)
+    const sinal = (_editandoLanc.valor||0) < 0 ? -1 : 1;
+    const valorFinal = sinal * Math.abs(valor);
+    const ts = new Date(dataStr + 'T12:00:00').getTime();
+    await atualizaLancamento(_editandoLanc.id, {
+      valor: valorFinal,
+      descricao: desc,
+      categoriaId: cat,
+      ts: ts,
+      data: new Date(ts).toISOString(),
+      cartao: cartao,
+    });
+    fechaModais();
+    toast('Lançamento atualizado');
+  };
+
+  document.getElementById('btnExcluirLanc').onclick = async () => {
+    if(!_editandoLanc) return;
+    if(!confirm(`Excluir "${_editandoLanc.descricao}" (${fmt(Math.abs(_editandoLanc.valor))})?`)) return;
+    await deletaLancamento(_editandoLanc.id);
+    fechaModais();
+    toast('Lançamento excluído');
+  };
+
+  document.getElementById('btnExcluirRecorrencia').onclick = async () => {
+    if(!_editandoLanc || !_editandoLanc.recorrenciaId) return;
+    if(!confirm(`Excluir este lançamento E cancelar a recorrência "${_editandoLanc.descricao}"? Não aparecerá mais nos próximos meses.`)) return;
+    await Promise.all([
+      deletaLancamento(_editandoLanc.id),
+      deletaRecorrencia(_editandoLanc.recorrenciaId)
+    ]);
+    fechaModais();
+    toast('Recorrência cancelada');
+  };
 }
 
 // ============================================================
@@ -1743,6 +1864,39 @@ function bindMesNav(){
   const prox = document.getElementById('mesProximo');
   if(ant) ant.onclick = () => mudaMes(-1);
   if(prox) prox.onclick = () => mudaMes(+1);
+
+  // Saldo em conta — toque pra abrir modal
+  const saldoCard = document.getElementById('saldoCard');
+  if(saldoCard){
+    saldoCard.onclick = () => {
+      const inp = document.getElementById('saldoInput');
+      if(inp){
+        if(state.saldoConta !== null && state.saldoConta !== undefined){
+          inp.value = state.saldoConta.toFixed(2).replace('.', ',');
+        } else {
+          inp.value = '';
+        }
+      }
+      document.getElementById('modalSaldo').classList.remove('hidden');
+      setTimeout(() => inp && inp.focus(), 200);
+    };
+  }
+}
+
+function bindModalSaldo(){
+  const btn = document.getElementById('btnSalvarSaldo');
+  if(!btn) return;
+  btn.onclick = async () => {
+    const v = document.getElementById('saldoInput').value.trim().replace(/\./g, '').replace(',', '.');
+    const num = parseFloat(v);
+    if(isNaN(num)){
+      toast('Valor inválido');
+      return;
+    }
+    await atualizaSaldo(num);
+    fechaModais();
+    toast('Saldo atualizado');
+  };
 }
 
 function abreModalAdd(){
@@ -2426,16 +2580,15 @@ function bindModalCofre(){
 }
 
 // ============================================================
-// SEED MAIO/26 — botão temporário pra importar tudo de maio
+// SEED v2.8 — importação única consolidada
 // ============================================================
-function bindSeedMaio(){
-  const btn = document.getElementById('btnSeedMaio');
-  const status = document.getElementById('seedStatus');
-  const box = document.getElementById('seedBoxMaio');
+function bindSeedV28(){
+  const btn = document.getElementById('btnSeedV28');
+  const status = document.getElementById('seedV28Status');
+  const box = document.getElementById('seedBoxV28');
   if(!btn) return;
 
-  // Se já foi executado, esconde a caixa
-  getDoc(doc(db, 'config', 'seedMaio26Executado')).then(snap => {
+  getDoc(doc(db, 'config', 'seedV28Executado')).then(snap => {
     if(snap.exists() && box){
       box.style.display = 'none';
     }
@@ -2443,118 +2596,12 @@ function bindSeedMaio(){
 
   btn.onclick = async () => {
     btn.disabled = true;
-    status.textContent = 'Importando… isso pode levar uns 30 segundos.';
+    status.textContent = 'Importando… pode levar 30-60 segundos.';
     try {
-      const mod = await import('./seed-maio26.js');
-      await mod.executaSeedMaio(db, toast);
-      status.innerHTML = '<span style="color:var(--green)">✓ Importação concluída! Confira nas abas Hoje, Histórico e Lançamentos.</span>';
-      // some após 3s
-      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
-    } catch(err){
-      console.error(err);
-      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
-      btn.disabled = false;
-    }
-  };
-}
-
-function bindSeedV27(){
-  const btn = document.getElementById('btnSeedV27');
-  const status = document.getElementById('seedV27Status');
-  const box = document.getElementById('seedBoxV27');
-  if(!btn) return;
-
-  // Se já foi executado, esconde a caixa
-  getDoc(doc(db, 'config', 'seedV27Executado')).then(snap => {
-    if(snap.exists() && box){
-      box.style.display = 'none';
-    }
-  }).catch(()=>{});
-
-  btn.onclick = async () => {
-    btn.disabled = true;
-    status.textContent = 'Aplicando ajustes…';
-    try {
-      const mod = await import('./seed-v27.js');
-      await mod.executaSeedV27(db, toast);
-      status.innerHTML = '<span style="color:var(--green)">✓ Ajustes aplicados!</span>';
-      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
-    } catch(err){
-      console.error(err);
-      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
-      btn.disabled = false;
-    }
-  };
-}
-
-function bindCleanup(){
-  const btn = document.getElementById('btnCleanup');
-  const status = document.getElementById('cleanupStatus');
-  const box = document.getElementById('seedBoxCleanup');
-  if(!btn) return;
-
-  getDoc(doc(db, 'config', 'cleanupRecorrentesV1')).then(snap => {
-    if(snap.exists() && box){
-      box.style.display = 'none';
-    }
-  }).catch(()=>{});
-
-  btn.onclick = async () => {
-    btn.disabled = true;
-    status.textContent = 'Limpando duplicatas…';
-    try {
-      const mod = await import('./cleanup-recorrentes.js');
-      await mod.executaLimpezaRecorrentes(db, toast);
-      status.innerHTML = '<span style="color:var(--green)">✓ Limpeza concluída!</span>';
-      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
-    } catch(err){
-      console.error(err);
-      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
-      btn.disabled = false;
-    }
-  };
-}
-
-function bindSeedJuros(){
-  const btn = document.getElementById('btnSeedJuros');
-  const status = document.getElementById('jurosStatus');
-  const box = document.getElementById('seedBoxJuros');
-  if(!btn) return;
-
-  getDoc(doc(db, 'config', 'seedJurosExecutado')).then(snap => {
-    if(snap.exists() && box){
-      box.style.display = 'none';
-    }
-  }).catch(()=>{});
-
-  btn.onclick = async () => {
-    btn.disabled = true;
-    status.textContent = 'Adicionando lançamentos de juros…';
-    try {
-      const juros = [
-        {valor: 49.83,  desc: 'Juros cheque especial'},
-        {valor: 12.59,  desc: 'IOF cheque especial'},
-        {valor: 398.36, desc: 'Juros cheque especial'},
-      ];
-      const batch = writeBatch(db);
-      const ts = new Date(2026, 5, 1, 12, 0).getTime();
-      for(const j of juros){
-        const ref = doc(collection(db, 'lancamentos'));
-        batch.set(ref, {
-          valor: j.valor,
-          descricao: j.desc,
-          categoriaId: 'bancojuros',
-          cartao: null,
-          ts: ts,
-          data: new Date(ts).toISOString(),
-          criadoEm: Date.now(),
-          origem: 'seed-juros',
-        });
-      }
-      await batch.commit();
-      await setDoc(doc(db, 'config', 'seedJurosExecutado'), { executadoEm: Date.now() });
-      status.innerHTML = '<span style="color:var(--green)">✓ 3 lançamentos de juros adicionados (total R$ 460,78)</span>';
-      setTimeout(() => { if(box) box.style.display = 'none'; }, 3000);
+      const mod = await import('./seed-v28.js');
+      await mod.executaSeedV28(db, toast);
+      status.innerHTML = '<span style="color:var(--green)">✓ Importação concluída! Confira nas abas Hoje, Histórico e Futuro.</span>';
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 4000);
     } catch(err){
       console.error(err);
       status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
@@ -2580,10 +2627,9 @@ async function init(){
     bindModalCategoria();
     bindModalNovoAtivo();
     bindModalCofre();
-    bindSeedMaio();
-    bindSeedV27();
-    bindCleanup();
-    bindSeedJuros();
+    bindModalEditarLanc();
+    bindModalSaldo();
+    bindSeedV28();
 
     await semeaSeNecessario();
     escutaCategorias();
@@ -2592,6 +2638,7 @@ async function init(){
     escutaInvestimentos();
     escutaCofres();
     escutaRecorrencias();
+    escutaSaldo();
 
     // Plano A: carrega lançamentos reais de mai/26 em diante pra mesclar com histórico semente
     await carregaHistoricoRealNovo();
