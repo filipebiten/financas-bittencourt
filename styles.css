@@ -459,3 +459,24 @@ input,select{font-family:inherit;color:var(--ink)}
 .saldo-val.pos{color:var(--green)}
 .saldo-sub{font-size:11px;color:var(--soft);font-style:italic;margin-top:3px}
 .saldo-edit{color:var(--soft);font-size:18px}
+
+/* ---- v2.9: estouro do teto + falta no teto ---- */
+.thermo-bar{overflow:visible}
+.thermo-bar-fill{overflow:visible}
+.thermo-bar-fill.estourou{background:var(--red)}
+.thermo-bar-teto{position:absolute;top:-6px;bottom:-6px;width:3px;background:var(--red);border-radius:2px;opacity:.85;z-index:2;display:none}
+.thermo-bar-teto.show{display:block}
+.thermo-bar-teto::after{content:"teto";position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--red);font-style:italic;letter-spacing:.05em;text-transform:uppercase;font-family:'Newsreader',serif;font-weight:500}
+.thermo-estouro{background:var(--red-bg);color:var(--red);font-size:13px;font-family:'Fraunces',serif;font-weight:500;text-align:center;padding:8px 12px;border-radius:9px;margin-top:12px;display:none}
+.thermo-estouro.show{display:block}
+
+/* ---- v2.9: saldo projetado ---- */
+.saldo-left{flex:1}
+.saldo-proj-row{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:baseline}
+.saldo-proj-lbl{font-size:11px;color:var(--soft);letter-spacing:.1em;text-transform:uppercase}
+.saldo-proj-val{font-family:'Fraunces',serif;font-weight:500;font-size:15px;letter-spacing:-.01em}
+.saldo-proj-val.neg{color:var(--red)}
+.saldo-proj-val.pos{color:var(--green)}
+
+.thermo-cofres{font-size:11px;color:var(--soft);font-style:italic;margin-top:3px;letter-spacing:.02em}
+.thermo-cofres strong{font-family:'Fraunces',serif;font-weight:500;color:var(--warm);font-style:normal}

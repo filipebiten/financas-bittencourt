@@ -729,19 +729,66 @@ function gastoPorCategoria(catId){
 
 function renderHoje(){
   const tetoTotal = state.categorias.reduce((acc,c) => acc + (c.teto||0), 0);
-  const gastoTotal = state.lancamentos.reduce((acc,l) => acc + (l.valor||0), 0);
+  // gastoTotal: ignora créditos (valores negativos) — só conta gastos
+  const gastoLancamentos = state.lancamentos.reduce((acc,l) => acc + Math.max(0, l.valor||0), 0);
+  // soma do "comprometido mensal" dos cofres ativos
+  const cofresComprometido = (state.cofres || []).reduce((acc, cofre) => {
+    const atual = cofre.atual || 0;
+    const meta = cofre.meta || 0;
+    if(atual >= meta) return acc; // cofre já cheio: não conta mais
+    // calcula mensal igual ao renderCofres
+    const hoje = new Date();
+    const mesAlvo = parseInt(cofre.mesAlvo) || (hoje.getMonth()+1);
+    const anoAlvo = (mesAlvo <= hoje.getMonth()+1) ? hoje.getFullYear()+1 : hoje.getFullYear();
+    const dataAlvo = new Date(anoAlvo, mesAlvo-1, 1);
+    const mesesRest = Math.max(1, Math.ceil((dataAlvo - hoje) / (1000*60*60*24*30)));
+    const mensal = (meta - atual) / mesesRest;
+    return acc + mensal;
+  }, 0);
+  const gastoTotal = gastoLancamentos + cofresComprometido;
   const pct = tetoTotal ? (gastoTotal / tetoTotal) : 0;
+  const estourou = gastoTotal > tetoTotal;
 
   // Termômetro principal
   document.getElementById('gastoMes').textContent = fmtBig(gastoTotal);
   document.getElementById('tetoMes').textContent = fmt(tetoTotal);
 
-  // Barra
+  // Linha de cofres
+  const elCofresMsg = document.getElementById('thermoCofres');
+  if(elCofresMsg){
+    if(cofresComprometido > 0){
+      document.getElementById('cofresIncluso').textContent = fmt(cofresComprometido);
+      elCofresMsg.style.display = '';
+    } else {
+      elCofresMsg.style.display = 'none';
+    }
+  }
+
+  // Barra com escala estendida quando estoura
   const fill = document.getElementById('thermoFill');
-  fill.style.width = Math.min(100, pct * 100) + '%';
-  fill.classList.remove('amber','red');
-  if(pct >= 0.9) fill.classList.add('red');
-  else if(pct >= 0.7) fill.classList.add('amber');
+  const tetoMarker = document.getElementById('thermoTeto');
+  const estouroMsg = document.getElementById('thermoEstouro');
+
+  if(estourou){
+    // escala estendida: barra mostra até 120% do gasto, teto fica numa posição interna
+    const max = gastoTotal * 1.05;
+    const fillPct = (gastoTotal / max) * 100;
+    const tetoPct = (tetoTotal / max) * 100;
+    fill.style.width = fillPct + '%';
+    fill.classList.remove('amber','red');
+    fill.classList.add('estourou');
+    tetoMarker.style.left = tetoPct + '%';
+    tetoMarker.classList.add('show');
+    estouroMsg.textContent = `Estourou o teto em ${fmt(gastoTotal - tetoTotal)}`;
+    estouroMsg.classList.add('show');
+  } else {
+    fill.style.width = Math.min(100, pct * 100) + '%';
+    fill.classList.remove('amber','red','estourou');
+    if(pct >= 0.9) fill.classList.add('red');
+    else if(pct >= 0.7) fill.classList.add('amber');
+    tetoMarker.classList.remove('show');
+    estouroMsg.classList.remove('show');
+  }
 
   // Marcador de dia (proporção do mês passada)
   const propDia = diaDoMes() / diasNoMes();
@@ -776,7 +823,9 @@ function renderHoje(){
 
   // Disponível
   const falta = tetoTotal - gastoTotal;
-  document.getElementById('dispMes').textContent = falta >= 0 ? fmt(falta) : `−${fmt(Math.abs(falta))}`;
+  const elDisp = document.getElementById('dispMes');
+  elDisp.textContent = falta >= 0 ? fmt(falta) : `−${fmt(Math.abs(falta))}`;
+  elDisp.className = 'foot-val ' + (falta < 0 ? 'danger' : 'ok');
 
   // Marcador do dia: só aparece no mês atual
   document.getElementById('thermoMarker').style.display = ehAtual ? '' : 'none';
@@ -789,19 +838,45 @@ function renderHoje(){
     else thermoLbl.textContent = `Já comprometido em ${MESES_NOMES[state.mes].toLowerCase()}`;
   }
 
-  // Saldo em conta — mostra no card abaixo do termômetro
+  // ============ Saldo dinâmico ============
+  // saldoInicial = state.saldoConta (definido no início do mês corrente OU saldo histórico)
+  // saldoHoje = saldoInicial + (créditos até hoje) − (gastos até hoje)
+  // saldoProjetado = saldoHoje + (créditos restantes do mês) − (gastos restantes do mês)
+  //
+  // Para o cálculo: usa lançamentos do MÊS ATUAL real (não o mês visto na UI)
   const saldoVal = document.getElementById('saldoVal');
   const saldoSub = document.getElementById('saldoSub');
-  if(saldoVal){
-    if(state.saldoConta === null || state.saldoConta === undefined){
-      saldoVal.textContent = '—';
-      saldoVal.className = 'saldo-val';
-      if(saldoSub) saldoSub.textContent = 'toque pra adicionar';
-    } else {
-      const v = state.saldoConta;
-      saldoVal.textContent = v < 0 ? `−${fmt(Math.abs(v))}` : fmt(v);
-      saldoVal.className = 'saldo-val ' + (v < 0 ? 'neg' : 'pos');
-      if(saldoSub && state.saldoContaAtualizadoEm){
+  const saldoProj = document.getElementById('saldoProj');
+  if(saldoVal && state.saldoConta !== null && state.saldoConta !== undefined){
+    // só calcula se temos saldo inicial
+    const agora = new Date();
+    // Precisa de uma query separada pra pegar lançamentos do mês atual real
+    // Mas pra evitar overhead, usa state.lancamentos se o mês visto for o atual; senão usa só saldoConta inicial
+    const ehMesAtualVisto = (state.ano === agora.getFullYear() && state.mes === agora.getMonth());
+
+    let saldoHoje = state.saldoConta;
+    let saldoFimMes = state.saldoConta;
+
+    if(ehMesAtualVisto){
+      // tem os lançamentos do mês visto em state.lancamentos (que coincide com atual)
+      const tsAgora = agora.getTime();
+      let movHoje = 0;   // soma dos lançamentos COM ts <= agora
+      let movFim = 0;    // soma de TODOS os lançamentos do mês
+      state.lancamentos.forEach(l => {
+        const v = l.valor || 0;
+        // gasto = +v (sai do saldo); crédito (v < 0) = entra (-v positivo)
+        movFim += v;
+        if((l.ts||0) <= tsAgora) movHoje += v;
+      });
+      saldoHoje = state.saldoConta - movHoje;
+      saldoFimMes = state.saldoConta - movFim;
+    }
+
+    saldoVal.textContent = saldoHoje < 0 ? `−${fmt(Math.abs(saldoHoje))}` : fmt(saldoHoje);
+    saldoVal.className = 'saldo-val ' + (saldoHoje < 0 ? 'neg' : 'pos');
+
+    if(saldoSub){
+      if(state.saldoContaAtualizadoEm){
         const d = new Date(state.saldoContaAtualizadoEm);
         const hoje = new Date();
         const diffH = Math.floor((hoje - d) / (1000*60*60));
@@ -809,9 +884,21 @@ function renderHoje(){
         if(diffH < 1) quando = 'agora';
         else if(diffH < 24) quando = `há ${diffH}h`;
         else quando = `há ${Math.floor(diffH/24)}d`;
-        saldoSub.textContent = `atualizado ${quando}`;
+        saldoSub.textContent = `base atualizada ${quando} · toque pra redefinir`;
+      } else {
+        saldoSub.textContent = 'toque pra redefinir';
       }
     }
+
+    if(saldoProj){
+      saldoProj.textContent = saldoFimMes < 0 ? `−${fmt(Math.abs(saldoFimMes))}` : fmt(saldoFimMes);
+      saldoProj.className = 'saldo-proj-val ' + (saldoFimMes < 0 ? 'neg' : 'pos');
+    }
+  } else if(saldoVal){
+    saldoVal.textContent = '—';
+    saldoVal.className = 'saldo-val';
+    if(saldoSub) saldoSub.textContent = 'toque pra adicionar';
+    if(saldoProj) saldoProj.textContent = '—';
   }
 
   // Navegação por mês — atualiza centro
@@ -1397,6 +1484,7 @@ let _editandoLanc = null;
 function abreModalEditarLanc(l){
   _editandoLanc = l;
   const ehRec = l.origem === 'recorrencia';
+  const ehCredito = (l.valor||0) < 0;
 
   document.getElementById('editValor').value = (Math.abs(l.valor||0)).toFixed(2).replace('.', ',');
   document.getElementById('editDesc').value = l.descricao || '';
@@ -1415,6 +1503,12 @@ function abreModalEditarLanc(l){
   // cartão
   document.getElementById('editCartao').value = l.cartao || '';
 
+  // toggle gasto/crédito pré-selecionado
+  document.querySelectorAll('[data-tipo-edit]').forEach(el => {
+    const isCredito = el.dataset.tipoEdit === 'credito';
+    el.classList.toggle('sel', isCredito === ehCredito);
+  });
+
   // botão de excluir recorrência só aparece se for recorrente
   const btnRec = document.getElementById('btnExcluirRecorrencia');
   if(ehRec && l.recorrenciaId){
@@ -1427,6 +1521,14 @@ function abreModalEditarLanc(l){
 }
 
 function bindModalEditarLanc(){
+  // toggle gasto/crédito
+  document.querySelectorAll('[data-tipo-edit]').forEach(opt => {
+    opt.onclick = () => {
+      document.querySelectorAll('[data-tipo-edit]').forEach(o => o.classList.remove('sel'));
+      opt.classList.add('sel');
+    };
+  });
+
   document.getElementById('btnSalvarEdit').onclick = async () => {
     if(!_editandoLanc) return;
     const valor = parseFloat(document.getElementById('editValor').value.replace(',', '.'));
@@ -1438,9 +1540,10 @@ function bindModalEditarLanc(){
       toast('Valor e descrição obrigatórios');
       return;
     }
-    // preserva sinal (crédito tem valor negativo)
-    const sinal = (_editandoLanc.valor||0) < 0 ? -1 : 1;
-    const valorFinal = sinal * Math.abs(valor);
+    // usa toggle pra determinar sinal
+    const tipoSel = document.querySelector('[data-tipo-edit].sel');
+    const ehCredito = tipoSel && tipoSel.dataset.tipoEdit === 'credito';
+    const valorFinal = ehCredito ? -Math.abs(valor) : Math.abs(valor);
     const ts = new Date(dataStr + 'T12:00:00').getTime();
     await atualizaLancamento(_editandoLanc.id, {
       valor: valorFinal,
@@ -2610,6 +2713,34 @@ function bindSeedV28(){
   };
 }
 
+function bindSeedV29(){
+  const btn = document.getElementById('btnSeedV29');
+  const status = document.getElementById('seedV29Status');
+  const box = document.getElementById('seedBoxV29');
+  if(!btn) return;
+
+  getDoc(doc(db, 'config', 'seedV29Executado')).then(snap => {
+    if(snap.exists() && box){
+      box.style.display = 'none';
+    }
+  }).catch(()=>{});
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'Aplicando v2.9… aguarde.';
+    try {
+      const mod = await import('./seed-v29.js');
+      await mod.executaSeedV29(db, toast);
+      status.innerHTML = '<span style="color:var(--green)">✓ Concluído! Confira aba Hoje.</span>';
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 4000);
+    } catch(err){
+      console.error(err);
+      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
+      btn.disabled = false;
+    }
+  };
+}
+
 // ============================================================
 // BOOTSTRAP
 // ============================================================
@@ -2630,6 +2761,7 @@ async function init(){
     bindModalEditarLanc();
     bindModalSaldo();
     bindSeedV28();
+    bindSeedV29();
 
     await semeaSeNecessario();
     escutaCategorias();
