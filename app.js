@@ -534,6 +534,50 @@ async function materializaRecorrenciasDoMes(){
   }
 }
 
+// ============================================================
+// LANÇAMENTOS VIRTUAIS — só pra meses FUTUROS
+// Calcula em runtime a partir das recorrências o que vai cair
+// naquele mês. Não persiste no Firestore.
+// ============================================================
+function lancamentosVirtuaisDoMes(ano, mes){
+  // ano/mes baseados em state (mes 0-indexed)
+  if(!state.recorrencias || state.recorrencias.length === 0) return [];
+  const hoje = new Date();
+  const mesData = new Date(ano, mes, 1);
+  // só gera virtuais pra meses estritamente FUTUROS
+  if(mesData.getFullYear() < hoje.getFullYear() ||
+     (mesData.getFullYear() === hoje.getFullYear() && mesData.getMonth() <= hoje.getMonth())){
+    return [];
+  }
+
+  const virtuais = [];
+  const ultimoDia = new Date(ano, mes+1, 0).getDate();
+
+  for(const rec of state.recorrencias){
+    const ini = rec.dataInicio ? new Date(rec.dataInicio) : null;
+    const fim = rec.dataFim ? new Date(rec.dataFim) : null;
+    // recorrência deve estar ativa naquele mês
+    if(ini && ini > new Date(ano, mes+1, 0, 23, 59)) continue;
+    if(fim && fim < new Date(ano, mes, 1)) continue;
+
+    const dia = Math.min(rec.diaDoMes || 1, ultimoDia);
+    const ts = new Date(ano, mes, dia, 12, 0).getTime();
+    virtuais.push({
+      id: `virtual-${rec.id}-${ano}-${mes}`,
+      valor: rec.valor,
+      descricao: rec.descricao,
+      categoriaId: rec.categoriaId,
+      cartao: rec.cartao || null,
+      ts: ts,
+      data: new Date(ts).toISOString(),
+      recorrenciaId: rec.id,
+      origem: 'virtual',
+      virtual: true,
+    });
+  }
+  return virtuais;
+}
+
 async function criaRecorrencia({valor, descricao, categoriaId, diaDoMes}){
   await addDoc(collection(db, 'recorrencias'), {
     valor, descricao, categoriaId, diaDoMes,
@@ -721,16 +765,28 @@ function renderHeader(){
   document.getElementById('hdrSub').textContent = `dia ${diaDoMes()} de ${diasNoMes()}`;
 }
 
-function gastoPorCategoria(catId){
-  return state.lancamentos
+function gastoPorCategoria(catId, lista){
+  const fonte = lista || state.lancamentos;
+  return fonte
     .filter(l => l.categoriaId === catId)
     .reduce((acc, l) => acc + (l.valor||0), 0);
 }
 
 function renderHoje(){
+  // determinar se mês visto é atual, passado ou futuro PRIMEIRO
+  const hoje = new Date();
+  const ehAtual = (state.ano === hoje.getFullYear() && state.mes === hoje.getMonth());
+  const ehPassado = (state.ano < hoje.getFullYear()) || (state.ano === hoje.getFullYear() && state.mes < hoje.getMonth());
+  const ehFuturo = !ehAtual && !ehPassado;
+
+  // Se for mês futuro, junta lançamentos reais (parcelas materializadas)
+  // com virtuais (recorrências calculadas em runtime)
+  const virtuais = ehFuturo ? lancamentosVirtuaisDoMes(state.ano, state.mes) : [];
+  const lancsCombinados = [...state.lancamentos, ...virtuais];
+
   const tetoTotal = state.categorias.reduce((acc,c) => acc + (c.teto||0), 0);
   // gastoTotal: ignora créditos (valores negativos) — só conta gastos
-  const gastoLancamentos = state.lancamentos.reduce((acc,l) => acc + Math.max(0, l.valor||0), 0);
+  const gastoLancamentos = lancsCombinados.reduce((acc,l) => acc + Math.max(0, l.valor||0), 0);
   // soma do "comprometido mensal" dos cofres ativos
   const cofresComprometido = (state.cofres || []).reduce((acc, cofre) => {
     const atual = cofre.atual || 0;
@@ -794,12 +850,6 @@ function renderHoje(){
   const propDia = diaDoMes() / diasNoMes();
   document.getElementById('thermoMarker').style.left = (propDia * 100) + '%';
 
-  // determinar se o mês visto é o atual, passado ou futuro
-  const hoje = new Date();
-  const ehAtual = (state.ano === hoje.getFullYear() && state.mes === hoje.getMonth());
-  const ehPassado = (state.ano < hoje.getFullYear()) || (state.ano === hoje.getFullYear() && state.mes < hoje.getMonth());
-  const ehFuturo = !ehAtual && !ehPassado;
-
   // Projeção: no ritmo atual, fecha em quanto? (só pro mês atual)
   const elRitmo = document.getElementById('ritmoFech');
   const elRitmoLbl = elRitmo.parentElement.querySelector('.foot-lbl');
@@ -844,9 +894,15 @@ function renderHoje(){
   // saldoProjetado = saldoHoje + (créditos restantes do mês) − (gastos restantes do mês)
   //
   // Para o cálculo: usa lançamentos do MÊS ATUAL real (não o mês visto na UI)
+  const saldoCard = document.getElementById('saldoCard');
   const saldoVal = document.getElementById('saldoVal');
   const saldoSub = document.getElementById('saldoSub');
   const saldoProj = document.getElementById('saldoProj');
+
+  // só mostra saldo no mês ATUAL — em passado/futuro fica oculto
+  if(saldoCard){
+    saldoCard.style.display = ehAtual ? '' : 'none';
+  }
   if(saldoVal && state.saldoConta !== null && state.saldoConta !== undefined){
     // só calcula se temos saldo inicial
     const agora = new Date();
@@ -927,15 +983,15 @@ function renderHoje(){
   const list = document.getElementById('catsList');
   list.innerHTML = '';
   state.categorias.forEach(cat => {
-    const gasto = gastoPorCategoria(cat.id);
+    const gasto = gastoPorCategoria(cat.id, lancsCombinados);
     const teto = cat.teto || 0;
     const p = teto ? gasto / teto : 0;
     let cls = 'g', clsFill = '';
     if(p >= 0.9){ cls = 'r'; clsFill = 'r'; }
     else if(p >= 0.7){ cls = 'a'; clsFill = 'a'; }
 
-    // lançamentos desta categoria neste mês
-    const lancsCat = state.lancamentos
+    // lançamentos desta categoria neste mês (combinados se for futuro)
+    const lancsCat = lancsCombinados
       .filter(l => (l.categoriaId || 'outros') === cat.id)
       .sort((a,b) => (b.ts||0) - (a.ts||0));
 
@@ -959,11 +1015,14 @@ function renderHoje(){
               const ehCredito = (l.valor||0) < 0;
               const valStr = ehCredito ? `+${fmt(Math.abs(l.valor))}` : fmt(l.valor||0);
               const cartaoTxt = l.cartao ? ` · ••${l.cartao}` : '';
-              const tagRec = l.origem === 'recorrencia' ? ' <span class="lanc-recur-tag">🔁</span>' : '';
+              const ehVirtual = l.virtual === true;
+              const tagRec = (l.origem === 'recorrencia' && !ehVirtual) ? ' <span class="lanc-recur-tag">🔁</span>' : '';
               const tagCred = ehCredito ? ' <span class="lanc-credito-tag">crédito</span>' : '';
+              const tagVirt = ehVirtual ? ' <span class="lanc-virtual-tag">futuro</span>' : '';
+              const itemCls = 'cat-lanc-item' + (ehVirtual ? ' virtual' : '');
               return `
-                <div class="cat-lanc-item" data-id="${l.id}">
-                  <span class="lanc-desc"><span class="lanc-data">${dataLbl}</span>${l.descricao||'—'}${cartaoTxt}${tagRec}${tagCred}</span>
+                <div class="${itemCls}" data-id="${l.id}">
+                  <span class="lanc-desc"><span class="lanc-data">${dataLbl}</span>${l.descricao||'—'}${cartaoTxt}${tagRec}${tagCred}${tagVirt}</span>
                   <span class="lanc-val ${ehCredito?'credito':''}">${valStr}</span>
                 </div>
               `;
@@ -977,8 +1036,16 @@ function renderHoje(){
       const lancEl = e.target.closest('.cat-lanc-item');
       if(lancEl){
         const lancId = lancEl.dataset.id;
-        const lanc = state.lancamentos.find(x => x.id === lancId);
-        if(lanc) abreModalEditarLanc(lanc);
+        // procura primeiro nos reais, depois nos virtuais
+        const lanc = state.lancamentos.find(x => x.id === lancId)
+                  || virtuais.find(x => x.id === lancId);
+        if(lanc){
+          if(lanc.virtual){
+            abreModalVirtual(lanc);
+          } else {
+            abreModalEditarLanc(lanc);
+          }
+        }
         return;
       }
       el.classList.toggle('expanded');
@@ -1453,28 +1520,45 @@ function popularSelect(id){
 
 function renderLancamentos(){
   const box = document.getElementById('lancsList');
-  if(state.lancamentos.length === 0){
+
+  // Se for mês futuro, junta lançamentos virtuais
+  const hoje = new Date();
+  const ehAtualOuPassado = (state.ano < hoje.getFullYear()) ||
+    (state.ano === hoje.getFullYear() && state.mes <= hoje.getMonth());
+  const ehFuturo = !ehAtualOuPassado;
+  const virtuais = ehFuturo ? lancamentosVirtuaisDoMes(state.ano, state.mes) : [];
+  const todos = [...state.lancamentos, ...virtuais].sort((a,b) => (b.ts||0) - (a.ts||0));
+
+  if(todos.length === 0){
     box.innerHTML = '<div class="empty">Nenhum lançamento ainda este mês.</div>';
     return;
   }
   box.innerHTML = '';
-  state.lancamentos.forEach(l => {
+  todos.forEach(l => {
     const cat = state.categorias.find(c => c.id === l.categoriaId);
     const data = new Date(l.ts);
     const dia = data.getDate().toString().padStart(2,'0');
     const mes = (data.getMonth()+1).toString().padStart(2,'0');
     const ehRecorrente = l.origem === 'recorrencia';
-    const tagRecur = ehRecorrente ? '<span class="lanc-recur-tag">🔁 mensal</span>' : '';
+    const ehVirtual = l.virtual === true;
+    const ehCredito = (l.valor||0) < 0;
+    const tagRecur = (ehRecorrente && !ehVirtual) ? '<span class="lanc-recur-tag">🔁 mensal</span>' : '';
+    const tagVirt = ehVirtual ? '<span class="lanc-virtual-tag">futuro</span>' : '';
+    const tagCred = ehCredito ? '<span class="lanc-credito-tag">crédito</span>' : '';
+    const valStr = ehCredito ? `+${fmt(Math.abs(l.valor))}` : fmt(l.valor||0);
     const el = document.createElement('div');
-    el.className = 'lanc';
+    el.className = 'lanc' + (ehVirtual ? ' virtual' : '');
     el.innerHTML = `
       <div class="lanc-left">
-        <div class="lanc-desc">${l.descricao || '—'}${tagRecur}</div>
+        <div class="lanc-desc">${l.descricao || '—'} ${tagRecur}${tagVirt}${tagCred}</div>
         <div class="lanc-meta">${dia}/${mes} · ${cat ? (cat.icone||'') + ' ' + cat.nome : 'Sem categoria'}</div>
       </div>
-      <div class="lanc-val">${fmt(l.valor||0)}</div>
+      <div class="lanc-val ${ehCredito?'credito':''}">${valStr}</div>
     `;
-    el.onclick = () => abreModalEditarLanc(l);
+    el.onclick = () => {
+      if(ehVirtual) abreModalVirtual(l);
+      else abreModalEditarLanc(l);
+    };
     box.appendChild(el);
   });
 }
@@ -1572,6 +1656,81 @@ function bindModalEditarLanc(){
       deletaLancamento(_editandoLanc.id),
       deletaRecorrencia(_editandoLanc.recorrenciaId)
     ]);
+    fechaModais();
+    toast('Recorrência cancelada');
+  };
+}
+
+// ============================================================
+// MODAL VIRTUAL — lançamento previsto (futuro)
+// ============================================================
+let _virtualLanc = null;
+
+function abreModalVirtual(l){
+  _virtualLanc = l;
+  const rec = state.recorrencias.find(r => r.id === l.recorrenciaId);
+  const nome = rec ? rec.descricao : l.descricao;
+  const valorTxt = (l.valor||0) < 0 ? `+${fmt(Math.abs(l.valor))} (crédito)` : fmt(l.valor||0);
+  const d = new Date(l.ts);
+  const dataLbl = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
+  document.getElementById('virtualText').innerHTML =
+    `<strong>${nome}</strong> de <strong>${valorTxt}</strong> previsto pra <strong>${dataLbl}</strong>.`;
+  document.getElementById('modalVirtual').classList.remove('hidden');
+}
+
+function bindModalVirtual(){
+  document.getElementById('btnIrRecorrencia').onclick = () => {
+    if(!_virtualLanc) return;
+    const rec = state.recorrencias.find(r => r.id === _virtualLanc.recorrenciaId);
+    if(rec){
+      document.getElementById('modalVirtual').classList.add('hidden');
+      abreModalEditarRec(rec);
+    } else {
+      toast('Recorrência não encontrada');
+    }
+  };
+}
+
+// ============================================================
+// MODAL EDITAR RECORRÊNCIA
+// ============================================================
+let _editandoRec = null;
+
+function abreModalEditarRec(rec){
+  _editandoRec = rec;
+  const ehCredito = (rec.valor||0) < 0;
+  document.getElementById('recTitle').textContent =
+    `${ehCredito ? '💰' : '🔁'} ${rec.descricao}`;
+  document.getElementById('recValor').value = Math.abs(rec.valor||0).toFixed(2).replace('.', ',');
+  document.getElementById('recDia').value = rec.diaDoMes || 1;
+  document.getElementById('modalEditarRec').classList.remove('hidden');
+}
+
+function bindModalEditarRec(){
+  document.getElementById('btnSalvarRec').onclick = async () => {
+    if(!_editandoRec) return;
+    const valor = parseFloat(document.getElementById('recValor').value.replace(',', '.'));
+    const dia = parseInt(document.getElementById('recDia').value);
+    if(isNaN(valor) || valor <= 0){ toast('Valor inválido'); return; }
+    if(isNaN(dia) || dia < 1 || dia > 31){ toast('Dia inválido'); return; }
+    // preserva sinal (crédito tem valor negativo no banco)
+    const sinal = (_editandoRec.valor||0) < 0 ? -1 : 1;
+    await updateDoc(doc(db, 'recorrencias', _editandoRec.id), {
+      valor: sinal * valor,
+      diaDoMes: dia,
+    });
+    fechaModais();
+    toast('Recorrência atualizada');
+  };
+  document.getElementById('btnCancelarRec').onclick = async () => {
+    if(!_editandoRec) return;
+    if(!confirm(`Cancelar "${_editandoRec.descricao}"? Não vai mais criar lançamentos nos próximos meses.`)) return;
+    // marca dataFim = ontem pra parar de materializar
+    const ontem = new Date();
+    ontem.setDate(ontem.getDate() - 1);
+    await updateDoc(doc(db, 'recorrencias', _editandoRec.id), {
+      dataFim: ontem.toISOString(),
+    });
     fechaModais();
     toast('Recorrência cancelada');
   };
@@ -2759,6 +2918,8 @@ async function init(){
     bindModalNovoAtivo();
     bindModalCofre();
     bindModalEditarLanc();
+    bindModalVirtual();
+    bindModalEditarRec();
     bindModalSaldo();
     bindSeedV28();
     bindSeedV29();
@@ -2783,4 +2944,4 @@ async function init(){
 }
 
 // dá um instante pro splash sumir
-window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE,MESES_NOMES}; window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; setTimeout(init, 1300);
+window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE,MESES_NOMES}; window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; window.__s=state; window.__r={renderHoje,renderLancamentos,abreModalVirtual,lancamentosVirtuaisDoMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; setTimeout(init, 1300);

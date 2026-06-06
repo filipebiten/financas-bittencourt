@@ -654,6 +654,53 @@
       </div>
     </div>
   </div>
+  <!-- ========= MODAL: EDITAR RECORRÊNCIA ========= -->
+  <div class="modal hidden" id="modalEditarRec">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="recTitle">Editar recorrência</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <p class="aprende-text" style="font-size:13px;color:var(--soft);font-style:italic">
+          Alterações afetam só lançamentos futuros (próximos meses). Lançamentos já criados não mudam.
+        </p>
+
+        <label class="lbl">Valor mensal (R$)</label>
+        <div class="money-input">
+          <span>R$</span>
+          <input type="text" inputmode="decimal" id="recValor">
+        </div>
+
+        <label class="lbl">Dia do mês</label>
+        <input type="number" id="recDia" min="1" max="31" class="select">
+
+        <button class="btn-primary" id="btnSalvarRec">Salvar alterações</button>
+        <button class="btn-danger" id="btnCancelarRec">Cancelar recorrência (parar de criar)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= MODAL: LANÇAMENTO VIRTUAL (futuro/presumido) ========= -->
+  <div class="modal hidden" id="modalVirtual">
+    <div class="modal-bg" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Lançamento previsto</h3>
+        <button class="x" data-close>✕</button>
+      </div>
+      <div class="form">
+        <p class="aprende-text" id="virtualText">—</p>
+        <p class="aprende-text" style="font-size:12px;color:var(--soft);font-style:italic">
+          Este lançamento ainda não aconteceu. Quando o mês chegar, o app vai criar o lançamento real automaticamente. Pra alterá-lo, você precisa editar a recorrência.
+        </p>
+        <button class="btn-primary" id="btnIrRecorrencia">Editar a recorrência</button>
+        <button class="btn-link" data-close>Fechar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ========= MODAL: ATUALIZAR SALDO EM CONTA ========= -->
   <div class="modal hidden" id="modalSaldo">
     <div class="modal-bg" data-close></div>

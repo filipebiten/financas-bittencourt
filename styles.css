@@ -480,3 +480,13 @@ input,select{font-family:inherit;color:var(--ink)}
 
 .thermo-cofres{font-size:11px;color:var(--soft);font-style:italic;margin-top:3px;letter-spacing:.02em}
 .thermo-cofres strong{font-family:'Fraunces',serif;font-weight:500;color:var(--warm);font-style:normal}
+
+/* ---- v2.10: lançamento virtual (futuro) ---- */
+.lanc-virtual-tag{display:inline-flex;align-items:center;font-size:10px;color:var(--warm-deep);background:var(--warm-bg);padding:1px 6px;border-radius:5px;font-style:italic;margin-left:6px;letter-spacing:.05em}
+.cat-lanc-item.virtual{opacity:.78}
+.cat-lanc-item.virtual .lanc-desc{font-style:italic}
+.cat-lanc-item.virtual .lanc-val{color:var(--ink-soft)}
+
+.lanc.virtual{opacity:.78}
+.lanc.virtual .lanc-desc{font-style:italic}
+.lanc-val.credito{color:var(--green)}
