@@ -2900,6 +2900,34 @@ function bindSeedV29(){
   };
 }
 
+function bindSeedV211(){
+  const btn = document.getElementById('btnSeedV211');
+  const status = document.getElementById('seedV211Status');
+  const box = document.getElementById('seedBoxV211');
+  if(!btn) return;
+
+  getDoc(doc(db, 'config', 'seedV211Executado')).then(snap => {
+    if(snap.exists() && box){
+      box.style.display = 'none';
+    }
+  }).catch(()=>{});
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'Atualizando carteira…';
+    try {
+      const mod = await import('./seed-v211.js');
+      await mod.executaSeedV211(db, toast);
+      status.innerHTML = '<span style="color:var(--green)">✓ Carteira atualizada!</span>';
+      setTimeout(() => { if(box) box.style.display = 'none'; }, 4000);
+    } catch(err){
+      console.error(err);
+      status.innerHTML = `<span style="color:var(--red)">Erro: ${err.message}. Veja o console (F12).</span>`;
+      btn.disabled = false;
+    }
+  };
+}
+
 // ============================================================
 // BOOTSTRAP
 // ============================================================
@@ -2923,6 +2951,7 @@ async function init(){
     bindModalSaldo();
     bindSeedV28();
     bindSeedV29();
+    bindSeedV211();
 
     await semeaSeNecessario();
     escutaCategorias();
