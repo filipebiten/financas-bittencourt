@@ -905,28 +905,13 @@ function renderHoje(){
   }
   if(saldoVal && state.saldoConta !== null && state.saldoConta !== undefined){
     // só calcula se temos saldo inicial
-    const agora = new Date();
-    // Precisa de uma query separada pra pegar lançamentos do mês atual real
-    // Mas pra evitar overhead, usa state.lancamentos se o mês visto for o atual; senão usa só saldoConta inicial
-    const ehMesAtualVisto = (state.ano === agora.getFullYear() && state.mes === agora.getMonth());
-
-    let saldoHoje = state.saldoConta;
-    let saldoFimMes = state.saldoConta;
-
-    if(ehMesAtualVisto){
-      // tem os lançamentos do mês visto em state.lancamentos (que coincide com atual)
-      const tsAgora = agora.getTime();
-      let movHoje = 0;   // soma dos lançamentos COM ts <= agora
-      let movFim = 0;    // soma de TODOS os lançamentos do mês
-      state.lancamentos.forEach(l => {
-        const v = l.valor || 0;
-        // gasto = +v (sai do saldo); crédito (v < 0) = entra (-v positivo)
-        movFim += v;
-        if((l.ts||0) <= tsAgora) movHoje += v;
-      });
-      saldoHoje = state.saldoConta - movHoje;
-      saldoFimMes = state.saldoConta - movFim;
-    }
+    // SALDO DESACOPLADO (v3.1): o saldo em conta é o valor ANCORADO manualmente
+    // (a verdade do banco). NÃO é recalculado pelos lançamentos, porque gasto
+    // no cartão não sai da conta até a fatura vencer — recalcular misturava
+    // conta e cartão e mostrava um saldo que não existe no banco.
+    // O termômetro cuida do gasto do mês; o saldo cuida do dinheiro real.
+    // Você reancora tocando no card quando olha o extrato.
+    const saldoHoje = state.saldoConta;
 
     saldoVal.textContent = saldoHoje < 0 ? `−${fmt(Math.abs(saldoHoje))}` : fmt(saldoHoje);
     saldoVal.className = 'saldo-val ' + (saldoHoje < 0 ? 'neg' : 'pos');
@@ -946,9 +931,10 @@ function renderHoje(){
       }
     }
 
+    // projeção automática removida (v3.1): misturava conta e cartão. Oculta a linha.
     if(saldoProj){
-      saldoProj.textContent = saldoFimMes < 0 ? `−${fmt(Math.abs(saldoFimMes))}` : fmt(saldoFimMes);
-      saldoProj.className = 'saldo-proj-val ' + (saldoFimMes < 0 ? 'neg' : 'pos');
+      const projRow = saldoProj.closest('.saldo-proj-row');
+      if(projRow) projRow.style.display = 'none';
     }
   } else if(saldoVal){
     saldoVal.textContent = '—';
