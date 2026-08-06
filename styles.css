@@ -266,6 +266,12 @@ input,select{font-family:inherit;color:var(--ink)}
 .grao-lbl{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--soft);margin-bottom:6px}
 .grao-edit-btn{margin-top:14px;width:100%;border:1.5px solid var(--line);border-radius:10px;padding:11px;font-family:'Fraunces',serif;font-size:14px;font-weight:500;color:var(--ink-soft)}
 
+.bolsos-list{display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:14px;overflow:hidden;border:1px solid var(--line-soft)}
+.bolso-item{background:var(--card);padding:13px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.bolso-titulo{font-size:14px;font-weight:500;color:var(--ink)}
+.bolso-finalidade{font-size:12px;color:var(--soft);flex:1}
+.bolso-valor{font-family:'Fraunces',serif;font-weight:500;font-size:15px;white-space:nowrap}
+
 /* ---- PROJEÇÕES VIVAS ---- */
 .proj-controls{display:flex;flex-direction:column;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
 .proj-ctrl label{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);display:block;margin-bottom:4px}

@@ -271,6 +271,7 @@ let state = {
   estabelecimentos: {},
   investimentos: null,
   grao: null,
+  bolsosForaArca: [],
   cofres: [],
   recorrencias: [],
   saldoConta: null,
@@ -437,6 +438,7 @@ async function escutaInvestimentos(){
       const d = snap.data();
       state.investimentos = d.arca;
       state.grao = d.grao;
+      state.bolsosForaArca = d.bolsosForaArca || [];
       render();
     }
   });
@@ -700,8 +702,9 @@ async function novoLancamento(valor, descricao, categoriaId, dataIso, parcelas){
     return;
   }
 
-  // Regime de caixa: divide o valor em N parcelas, uma por mês
-  const valorParcela = Math.round((valor / parcelas) * 100) / 100;
+  // Regime de caixa: valor informado É o valor da parcela (não o total) —
+  // repete o mesmo valor em N lançamentos, um por mês.
+  const valorParcela = valor;
   const grupoId = 'p' + Date.now(); // agrupa as parcelas
   const batch = writeBatch(db);
 
@@ -1279,13 +1282,34 @@ function renderInvestimentos(){
     totalArca += totais[q];
   }
   const grao = state.grao ? state.grao.valor : 0;
-  const patrimonio = totalArca + grao;
+  const bolsos = state.bolsosForaArca || [];
+  const totalBolsos = bolsos.reduce((a,x)=>a+(x.valor||0),0);
+  const patrimonio = totalArca + grao + totalBolsos;
 
   // patrimônio
   setTxt('patrimTotal', fmt(patrimonio));
   setTxt('patrimArca', fmt(totalArca));
   setTxt('patrimGrao', fmt(grao));
   setTxt('arcaTotal', fmt(totalArca));
+
+  // bolsos fora do ARCA (mesmo título, finalidades diferentes — exibidos separados)
+  const bolsosList = document.getElementById('bolsosForaArcaList');
+  if(bolsosList){
+    const bolsosSection = bolsosList.closest('.bolsos-fora-arca');
+    if(bolsos.length === 0){
+      if(bolsosSection) bolsosSection.style.display = 'none';
+    } else {
+      if(bolsosSection) bolsosSection.style.display = '';
+      const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      bolsosList.innerHTML = bolsos.map(b => `
+        <div class="bolso-item">
+          <div class="bolso-titulo">${esc(b.titulo)}</div>
+          <div class="bolso-finalidade">${esc(b.finalidade)}</div>
+          <div class="bolso-valor">${fmt(b.valor)}</div>
+        </div>
+      `).join('');
+    }
+  }
 
   // donut SVG
   const donut = document.getElementById('arcaDonut');
@@ -2289,8 +2313,8 @@ function atualizaParcelaTip(){
   const parcelas = parseInt(document.getElementById('inpParcelas').value) || 1;
   const tip = document.getElementById('parcelaTip');
   if(parcelas > 1 && valor > 0){
-    const p = (valor/parcelas);
-    tip.textContent = `${parcelas}x de ${fmt(p)} — uma em cada mês, a partir da data escolhida`;
+    const total = valor * parcelas;
+    tip.textContent = `${parcelas}x de ${fmt(valor)} (total ${fmt(total)}) — uma em cada mês, a partir da data escolhida`;
   } else {
     tip.textContent = '';
   }
