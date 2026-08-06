@@ -8,6 +8,9 @@ import {
   getFirestore, doc, getDoc, setDoc, collection, addDoc,
   query, where, orderBy, onSnapshot, deleteDoc, updateDoc, getDocs, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 // ============================================================
 // CONFIGURAÇÃO FIREBASE (do Filipe)
@@ -23,6 +26,13 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
+
+// ============================================================
+// AUTENTICAÇÃO — login Google restrito a Filipe e Mari
+// ============================================================
+const ALLOWED_EMAILS = ['filipebiten@gmail.com', 'mariiperrucine@gmail.com'];
+const auth = getAuth(fbApp);
+const googleProvider = new GoogleAuthProvider();
 
 // ============================================================
 // HISTÓRICO MENSAL (12 meses) — totais por categoria validados
@@ -2983,4 +2993,51 @@ async function init(){
 }
 
 // dá um instante pro splash sumir
-window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE,MESES_NOMES}; window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; window.__s=state; window.__r={renderHoje,renderLancamentos,abreModalVirtual,lancamentosVirtuaisDoMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; setTimeout(init, 1300);
+window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE,MESES_NOMES}; window.__s=state; window.__r={renderHoje,mudaMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE}; window.__s=state; window.__r={renderHoje,renderLancamentos,abreModalVirtual,lancamentosVirtuaisDoMes,CATEGORIAS_SEMENTE,INVEST_SEMENTE,GRAO_SEMENTE};
+
+// ============================================================
+// GATE DE LOGIN — mostra tela de entrada até autenticar com
+// conta Google permitida; só então inicia o app.
+// ============================================================
+let appIniciado = false;
+
+function mostraTela(id){
+  ['loginScreen', 'accessDenied', 'app'].forEach(tid => {
+    document.getElementById(tid).classList.toggle('hidden', tid !== id);
+  });
+}
+
+document.getElementById('btnGoogleLogin').onclick = async () => {
+  try {
+    await signInWithPopup(auth, googleProvider);
+  } catch(err){
+    // Popup falha em PWA instalado (iOS Safari standalone bloqueia popup) — cai pro redirect.
+    console.error('Erro no login via popup, tentando redirect:', err);
+    try {
+      await signInWithRedirect(auth, googleProvider);
+    } catch(err2){
+      console.error('Erro no login via redirect:', err2);
+      toast('Não deu pra entrar. Tenta de novo.');
+    }
+  }
+};
+document.getElementById('btnLogout').onclick = () => signOut(auth);
+document.getElementById('btnLogoutHdr').onclick = () => signOut(auth);
+
+onAuthStateChanged(auth, (user) => {
+  if(!user){
+    mostraTela('loginScreen');
+    return;
+  }
+  if(!ALLOWED_EMAILS.includes(user.email)){
+    document.getElementById('accessDeniedMsg').textContent =
+      `${user.email} não tem acesso ao Bolso.`;
+    mostraTela('accessDenied');
+    return;
+  }
+  mostraTela('app');
+  if(!appIniciado){
+    appIniciado = true;
+    setTimeout(init, 1300);
+  }
+});
