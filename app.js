@@ -2230,7 +2230,7 @@ function bindModais(){
     e.target.value = v;
     atualizaParcelaTip();
   });
-  document.getElementById('inpParcelas').addEventListener('change', atualizaParcelaTip);
+  document.getElementById('inpParcelas').addEventListener('input', atualizaParcelaTip);
 
   // Toggle gasto/crédito
   document.querySelectorAll('.tipo-opt').forEach(opt => {
@@ -2269,9 +2269,13 @@ function bindModais(){
       toast('Recorrente e parcelado não podem juntos — desmarque um');
       return;
     }
-    // Crédito não pode ser parcelado nem recorrente
-    if(ehCredito && (recorrente || parcelas > 1)){
-      toast('Crédito é único — não pode ser parcelado nem recorrente');
+    // Crédito pode ser parcelado (ex: estorno em N vezes), mas não recorrente
+    if(ehCredito && recorrente){
+      toast('Crédito não pode ser recorrente — desmarque');
+      return;
+    }
+    if(parcelas > 48){
+      toast('Máximo 48 parcelas');
       return;
     }
 
@@ -2296,7 +2300,7 @@ function bindModais(){
           await criaRecorrencia({ valor, descricao: desc, categoriaId: catEscolhida, diaDoMes: dia });
         }
         fechaModais();
-        toast(ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo')));
+        toast(parcelas > 1 ? `${parcelas}x ${ehCredito ? 'de crédito ' : ''}criadas` : ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : 'Lançamento salvo'));
       };
       return;
     }
@@ -2306,7 +2310,7 @@ function bindModais(){
       await criaRecorrencia({ valor, descricao: desc, categoriaId: cat, diaDoMes: dia });
     }
     fechaModais();
-    toast(ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : (parcelas > 1 ? `${parcelas}x criadas` : 'Lançamento salvo')));
+    toast(parcelas > 1 ? `${parcelas}x ${ehCredito ? 'de crédito ' : ''}criadas` : ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : 'Lançamento salvo'));
   };
 
   // Tip da recorrência
