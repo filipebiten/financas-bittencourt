@@ -90,13 +90,13 @@ export async function executaSeedV40(dbArg, toastArg){
     grao: { ...grAntigo, valor: 3498.71 },
     saldoCarteira: 19.23,
     bolsosForaArca: [
-      { titulo: 'Tesouro Selic 2031', finalidade: 'Reserva de emergência', valor: 7403.43 },
+      { titulo: 'Tesouro Selic 2031', finalidade: 'Reserva de emergência', valor: 7533.19 },
       { titulo: 'Tesouro Selic 2031', finalidade: 'Cofre férias',          valor: 3898.63 },
     ],
     atualizadoEm: Date.now(),
   });
   log('2+3. Carteira ARCA trocada (total 4.958,06). Grão 3.498,71. Saldo parado 19,23.');
-  log('     Bolsos Selic 2031 fora do ARCA: 7.403,43 + 3.898,63 = 11.431,82. Patrimônio 19.907,82.');
+  log('     Bolsos Selic 2031 fora do ARCA: 7.533,19 + 3.898,63 = 11.431,82. Patrimônio 19.907,82.');
 
   // ---------------------------------------------------------
   // 4. TETOS DE CATEGORIA — soma alvo R$ 6.845
