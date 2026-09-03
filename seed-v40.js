@@ -104,7 +104,7 @@ export async function executaSeedV40(dbArg, toastArg){
   const tetos = {
     moradia: 2350, alimentacao: 1200, restaurante: 150, transporte: 620,
     comunicacao: 320, seguros: 70, saude: 180, filhos: 150, dizimo: 787,
-    pessoalfilipe: 60, pessoalmari: 100, assinaturas: 370, presentesextras: 80,
+    pessoalfilipe: 60, pessoalmari: 100, assinaturas: 370, presentes: 80,
     investimentos: 408, outros: 0, lazer: 0, bancojuros: 0, impostos: 0,
   };
   const catsSnap = await getDocs(collection(db, 'categorias'));
