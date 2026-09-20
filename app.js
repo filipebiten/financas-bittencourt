@@ -1851,7 +1851,6 @@ async function renderCompromissos(){
   const box = document.getElementById('compList');
   if(!box) return;
   const meuGen = ++_compromissosGen;
-  console.log('[DIAG] renderCompromissos start gen=', meuGen, 'recorrencias=', (state.recorrencias||[]).length);
 
   // janela: hoje até +12 meses (frente)
   const hoje = new Date();
@@ -1892,6 +1891,7 @@ async function renderCompromissos(){
   // distribui parcelas (lançamentos futuros que vêm com origem=parcela ou parcelaGrupo)
   lancsFuturos.forEach(l => {
     if(l.origem === 'recorrencia') return; // recorrências contamos à parte
+    if((l.valor||0) <= 0) return; // idem acima: estorno parcelado é receita, não compromisso
     const d = new Date(l.ts);
     const m = meses.find(x => x.ano === d.getFullYear() && x.mes === d.getMonth());
     if(m) m.parcelas.push(l);
@@ -1900,6 +1900,12 @@ async function renderCompromissos(){
   // distribui recorrentes (todo mês cai uma vez de cada)
   meses.forEach(m => {
     recorrentes.forEach(r => {
+      // Compromisso futuro é GASTO agendado, não renda. Recorrência de crédito
+      // (salário, valor negativo pela convenção de sinais do app) não entra aqui —
+      // sem esse filtro, o salário (-7.867,44) derrubava o total do mês pra
+      // negativo e a barra "ninguém tem compromisso" disparava mesmo com ~15
+      // recorrências de gasto reais agendadas.
+      if((r.valor||0) <= 0) return;
       // só conta se data de início <= esse mês E data de fim >= esse mês (se houver)
       const ini = r.dataInicio ? new Date(r.dataInicio) : new Date(0);
       const fim = r.dataFim ? new Date(r.dataFim) : null;
@@ -1923,7 +1929,6 @@ async function renderCompromissos(){
     return { total: tp+tr, renda: rendaDoMes(m.ano, m.mes), parc: tp, recur: tr };
   });
   const maxAbs = Math.max(1, ...totaisMes.map(x => x.total));
-  if(recorrentes.length > 0) console.log('[DIAG]', JSON.stringify({ gen: meuGen, recorrentesAmostra: recorrentes.slice(0,2).map(r=>({desc:r.descricao,dataInicio:r.dataInicio,dataFim:r.dataFim,tipo:typeof r.dataInicio})), primeiroMes: meses[0], totaisMes0: totaisMes[0] }));
 
   if(meuGen !== _compromissosGen) return; // uma chamada mais nova já assumiu
 
