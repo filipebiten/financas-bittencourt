@@ -1089,7 +1089,10 @@ async function buscaLancamentosDeUmMes(ano, mes){
   const totaisPorCat = {};
   snap.docs.forEach(d => {
     const l = d.data();
-    totaisPorCat[l.categoriaId] = (totaisPorCat[l.categoriaId]||0) + (l.valor||0);
+    // Só GASTO entra no histórico (mesma convenção de renderHoje: gasto positivo,
+    // crédito negativo — salário/estorno não filtrado aqui fazia o total do mês
+    // sair negativo, ex: "R$ -2.180" na aba Histórico).
+    totaisPorCat[l.categoriaId] = (totaisPorCat[l.categoriaId]||0) + Math.max(0, l.valor||0);
   });
   return totaisPorCat;
 }
