@@ -469,6 +469,12 @@ async function escutaCofres(){
 async function escutaRecorrencias(){
   onSnapshot(collection(db, 'recorrencias'), async (snap) => {
     state.recorrencias = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    // Diferente de todo outro escuta*, esse NÃO chamava render() — só
+    // materializava. Se recorrencias fosse o último listener a responder no
+    // carregamento inicial (comum, timing de rede independente por coleção),
+    // a aba Futuro ficava travada em "nenhum compromisso agendado" pra sempre,
+    // porque nada mais disparava um re-render depois que os dados chegavam.
+    render();
     // toda vez que mudar (e na carga inicial), tenta materializar lançamentos do mês corrente
     await materializaRecorrenciasDoMes();
   });
