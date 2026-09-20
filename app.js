@@ -1923,6 +1923,7 @@ async function renderCompromissos(){
     return { total: tp+tr, renda: rendaDoMes(m.ano, m.mes), parc: tp, recur: tr };
   });
   const maxAbs = Math.max(1, ...totaisMes.map(x => x.total));
+  if(recorrentes.length > 0) console.log('[DIAG]', JSON.stringify({ gen: meuGen, recorrentesAmostra: recorrentes.slice(0,2).map(r=>({desc:r.descricao,dataInicio:r.dataInicio,dataFim:r.dataFim,tipo:typeof r.dataInicio})), primeiroMes: meses[0], totaisMes0: totaisMes[0] }));
 
   if(meuGen !== _compromissosGen) return; // uma chamada mais nova já assumiu
 
