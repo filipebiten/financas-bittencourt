@@ -1987,6 +1987,8 @@ function renderProjOrcamento(){
   ultimos12.forEach(m => totalReal12m += Object.values(histTotal[m]).reduce((a,b)=>a+b,0));
   const realMensal = totalReal12m / ultimos12.length;
 
+  const hoje = new Date();
+
   // tendência: comparar últimos 3 meses FECHADOS com os 3 anteriores.
   // Dois cuidados, senão o número sai absurdo:
   // 1) nunca incluir o mês corrente (incompleto) como se fosse um mês cheio;
@@ -2009,7 +2011,6 @@ function renderProjOrcamento(){
   const planoMensal = state.categorias.reduce((a,c) => a + (c.teto||0), 0);
 
   // renda hoje vs pós-julho
-  const hoje = new Date();
   const isPosJulho = hoje.getMonth() >= 6 || hoje.getFullYear() > 2026;
   const renda = isPosJulho ? 7804.93 : 14000;
   const rendaPosJulho = 7804.93;
