@@ -1851,6 +1851,7 @@ async function renderCompromissos(){
   const box = document.getElementById('compList');
   if(!box) return;
   const meuGen = ++_compromissosGen;
+  console.log('[DIAG] renderCompromissos start gen=', meuGen, 'recorrencias=', (state.recorrencias||[]).length);
 
   // janela: hoje até +12 meses (frente)
   const hoje = new Date();
