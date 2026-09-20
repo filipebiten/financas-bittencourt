@@ -163,7 +163,7 @@ input,select{font-family:inherit;color:var(--ink)}
 .modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
 .modal-bg{position:absolute;inset:0;background:rgba(31,27,22,.6);animation:bgIn .25s ease}
 @keyframes bgIn{from{opacity:0}to{opacity:1}}
-.modal-card{position:relative;background:var(--paper);width:100%;max-width:520px;border-radius:22px 22px 0 0;padding:24px 22px max(28px,calc(env(safe-area-inset-bottom) + 20px));animation:cardUp .3s cubic-bezier(.4,0,.2,1)}
+.modal-card{position:relative;background:var(--paper);width:100%;max-width:520px;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;border-radius:22px 22px 0 0;padding:24px 22px max(28px,calc(env(safe-area-inset-bottom) + 20px));animation:cardUp .3s cubic-bezier(.4,0,.2,1)}
 @keyframes cardUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
 .modal-head h3{font-family:'Fraunces',serif;font-weight:500;font-size:22px;letter-spacing:-.01em}
@@ -362,6 +362,9 @@ input,select{font-family:inherit;color:var(--ink)}
 .cofre-vals .atual{font-family:'Fraunces',serif;font-weight:500;color:var(--ink)}
 .cofre-vals .meta{color:var(--soft)}
 .cofre-mensal{font-size:12px;color:var(--warm);font-style:italic;margin-top:4px}
+.cofre-inativo{opacity:.6}
+.cofre-mensal.cofre-pausado{color:var(--soft);font-style:normal}
+.cofre-alerta{font-size:12px;color:var(--red);margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}
 
 /* ---- v2.3: DASHBOARD FUTURO ---- */
 .dash-twin{display:grid;grid-template-columns:1fr 1fr;gap:10px}

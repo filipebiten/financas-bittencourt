@@ -47,6 +47,7 @@ const HIST_MESES_LBL = {
 };
 
 let histCategoriaAtiva = 'total'; // 'total' ou id de categoria
+let histMesEscolhidoManualmente = false; // só true depois que o usuário mexe no <select>
 
 // ============================================================
 // INVESTIMENTOS — estrutura ARCA + Grão
@@ -802,6 +803,7 @@ function renderHoje(){
   const gastoLancamentos = lancsCombinados.reduce((acc,l) => acc + Math.max(0, l.valor||0), 0);
   // soma do "comprometido mensal" dos cofres ativos
   const cofresComprometido = (state.cofres || []).reduce((acc, cofre) => {
+    if(cofre.pausado) return acc; // aporte suspenso: não compromete o termômetro
     const atual = cofre.atual || 0;
     const meta = cofre.meta || 0;
     if(atual >= meta) return acc; // cofre já cheio: não conta mais
@@ -869,7 +871,16 @@ function renderHoje(){
   if(ehAtual){
     const dia = diaDoMes();
     const total = diasNoMes();
-    const projecao = dia > 0 ? (gastoTotal / dia) * total : 0;
+    // Projeção honesta: recorrência (aluguel, assinaturas...) é valor CONHECIDO, não se
+    // extrapola — só os gastos avulsos (mercado, restaurante) fazem sentido projetar pelo
+    // ritmo do mês. A extrapolação linear ingênua (gastoTotal/dia*total) dava número absurdo
+    // no início do mês: uma recorrência grande lançada no dia 1 (ex: aluguel) virava ×30.
+    const totalRecorrenciasDoMes = lancsCombinados
+      .filter(l => l.origem === 'recorrencia')
+      .reduce((a,l) => a + Math.max(0, l.valor||0), 0);
+    const totalAvulsosAteAgora = Math.max(0, gastoLancamentos - totalRecorrenciasDoMes);
+    const mediaAvulsosDia = dia > 0 ? totalAvulsosAteAgora / dia : 0;
+    const projecao = totalRecorrenciasDoMes + (mediaAvulsosDia * total) + cofresComprometido;
     const fechaMaior = projecao > tetoTotal;
     elRitmoLbl.textContent = 'Ritmo do mês';
     elRitmo.textContent = `Fecha em ${fmt(projecao)}`;
@@ -1128,16 +1139,19 @@ function renderHistorico(){
       const [a,mm] = m.split('-');
       return `<option value="${m}">${MESES_NOMES[parseInt(mm)-1]} · ${a}</option>`;
     }).join('');
-    if(valAntes && meses.includes(valAntes)){
+    if(histMesEscolhidoManualmente && valAntes && meses.includes(valAntes)){
       mesSel.value = valAntes;
       selecionado = valAntes;
     } else {
-      // default = mês mais recente do histórico
+      // default = mês mais recente do histórico. Também cobre o caso em que a 1ª
+      // renderização aconteceu com o cache de meses reais ainda incompleto (a busca
+      // é assíncrona) — sem a flag acima, esse valor "grudava" como se fosse escolha
+      // do usuário e o Histórico abria sempre no mês antigo errado.
       mesSel.value = meses[meses.length-1];
       selecionado = meses[meses.length-1];
     }
     // handler do change: re-renderiza o histórico inteiro pra atualizar gráfico + número + tendência + detalhe
-    mesSel.onchange = () => renderHistorico();
+    mesSel.onchange = () => { histMesEscolhidoManualmente = true; renderHistorico(); };
   }
 
   // índice do mês selecionado na série
@@ -1780,8 +1794,18 @@ function renderCofres(){
     const dataAlvo = new Date(anoAlvo, mesAlvo-1, 1);
     const mesesRest = Math.max(1, Math.ceil((dataAlvo - hoje) / (1000*60*60*24*30)));
     const mensal = (meta - atual) / mesesRest;
+    // aviso de provisão: cofre não pausado, ainda zerado, vencendo em <=3 meses
+    const semProvisao = !cofre.pausado && !completo && atual === 0 && mesesRest <= 3;
+    let linhaStatus;
+    if(cofre.pausado){
+      linhaStatus = `<div class="cofre-mensal cofre-pausado">⏸ Aporte pausado</div>`;
+    } else if(completo){
+      linhaStatus = `<div class="cofre-mensal" style="color:var(--green)">✓ Meta atingida</div>`;
+    } else {
+      linhaStatus = `<div class="cofre-mensal">Guarde ${fmt(mensal)}/mês até ${MESES_NOMES[mesAlvo-1].slice(0,3)}</div>`;
+    }
     return `
-      <div class="cofre" data-id="${cofre.id}">
+      <div class="cofre ${cofre.pausado?'cofre-inativo':''}" data-id="${cofre.id}">
         <div class="cofre-top">
           <span class="cofre-nome">${cofre.icone||'🏛️'} ${cofre.nome}</span>
           <span class="cofre-mes">${MESES_NOMES[mesAlvo-1].slice(0,3)} · ${anoAlvo}</span>
@@ -1791,7 +1815,8 @@ function renderCofres(){
           <span class="atual">${fmt(atual)}</span>
           <span class="meta">de ${fmt(meta)}</span>
         </div>
-        ${completo ? `<div class="cofre-mensal" style="color:var(--green)">✓ Meta atingida</div>` : `<div class="cofre-mensal">Guarde ${fmt(mensal)}/mês até ${MESES_NOMES[mesAlvo-1].slice(0,3)}</div>`}
+        ${linhaStatus}
+        ${semProvisao ? `<div class="cofre-alerta">${cofre.nome} vence ${MESES_NOMES[mesAlvo-1].slice(0,3)}/${anoAlvo.toString().slice(2)} sem provisão — faltam ${mesesRest} ${mesesRest===1?'mês':'meses'}</div>` : ''}
       </div>
     `;
   }).join('');
@@ -1809,9 +1834,17 @@ function renderFuturo(){
   renderProjInvestimentos();
 }
 
+// render() dispara renderCompromissos() toda vez que QUALQUER listener do
+// Firestore atualiza (lancamentos, categorias, cofres...), e a função é async
+// (await getDocs). Sem essa trava, uma chamada antiga — iniciada antes de
+// state.recorrencias carregar — pode terminar DEPOIS de uma chamada nova e
+// sobrescrever o resultado certo com "nenhuma parcela agendada".
+let _compromissosGen = 0;
+
 async function renderCompromissos(){
   const box = document.getElementById('compList');
   if(!box) return;
+  const meuGen = ++_compromissosGen;
 
   // janela: hoje até +12 meses (frente)
   const hoje = new Date();
@@ -1884,6 +1917,8 @@ async function renderCompromissos(){
   });
   const maxAbs = Math.max(1, ...totaisMes.map(x => x.total));
 
+  if(meuGen !== _compromissosGen) return; // uma chamada mais nova já assumiu
+
   // renderiza
   if(maxAbs === 1){ // ninguém tem compromisso
     box.innerHTML = `<div class="comp-row empty-row">Nenhuma parcela ou gasto recorrente agendado pros próximos 12 meses.</div>`;
@@ -1952,10 +1987,23 @@ function renderProjOrcamento(){
   ultimos12.forEach(m => totalReal12m += Object.values(histTotal[m]).reduce((a,b)=>a+b,0));
   const realMensal = totalReal12m / ultimos12.length;
 
-  // tendência: comparar últimos 3 com 3 anteriores
-  const ult3 = ultimos12.slice(-3).reduce((a,m) => a + Object.values(histTotal[m]).reduce((s,v)=>s+v,0), 0)/3;
-  const ant3 = ultimos12.slice(-6,-3).reduce((a,m) => a + Object.values(histTotal[m]).reduce((s,v)=>s+v,0), 0)/3;
-  const tendencia = ult3 - ant3;
+  // tendência: comparar últimos 3 meses FECHADOS com os 3 anteriores.
+  // Dois cuidados, senão o número sai absurdo:
+  // 1) nunca incluir o mês corrente (incompleto) como se fosse um mês cheio;
+  // 2) nunca comparar através da mudança de regime de renda de jul/26 (CLAUDE.md §7) —
+  //    misturar meses do regime antigo (~14k) com o novo (7.804,93) infla a diferença.
+  const inicioRegimeNovo = '2026-07';
+  const chaveMesAtual = `${hoje.getFullYear()}-${(hoje.getMonth()+1).toString().padStart(2,'0')}`;
+  const mesesFechadosRegimeNovo = meses.filter(m => m >= inicioRegimeNovo && m !== chaveMesAtual);
+  const ultimos6Fechados = mesesFechadosRegimeNovo.slice(-6);
+  let tendencia = 0, temTendencia = false;
+  if(ultimos6Fechados.length === 6){
+    const soma3 = arr => arr.reduce((a,m) => a + Object.values(histTotal[m]).reduce((s,v)=>s+v,0), 0)/3;
+    const ult3 = soma3(ultimos6Fechados.slice(-3));
+    const ant3 = soma3(ultimos6Fechados.slice(0,3));
+    tendencia = ult3 - ant3;
+    temTendencia = true;
+  }
 
   // gasto PLANO: soma dos tetos
   const planoMensal = state.categorias.reduce((a,c) => a + (c.teto||0), 0);
@@ -1985,7 +2033,7 @@ function renderProjOrcamento(){
   if(exp){
     const diff = realMensal - planoMensal;
     let tendTxt = '';
-    if(Math.abs(tendencia) > 100){
+    if(temTendencia && Math.abs(tendencia) > 100 && Math.abs(tendencia) < realMensal){
       tendTxt = tendencia > 0
         ? `Atenção: nos últimos 3 meses os gastos vêm <strong>subindo</strong> em média ${fmt(tendencia)}/mês comparado ao trimestre anterior.`
         : `Boa notícia: os gastos vêm <strong>caindo</strong> ${fmt(Math.abs(tendencia))}/mês nos últimos 3 meses.`;
@@ -2794,6 +2842,7 @@ function abreModalCofre(cofreId){
   const inpAtual = document.getElementById('cofreAtual');
   const inpMes = document.getElementById('cofreMesAlvo');
   const inpIcone = document.getElementById('cofreIcone');
+  const inpPausado = document.getElementById('cofrePausado');
 
   // popula select de meses se ainda não foi
   if(inpMes.options.length === 0){
@@ -2808,6 +2857,7 @@ function abreModalCofre(cofreId){
     inpAtual.value = (c.atual||0).toString().replace('.', ',');
     inpMes.value = c.mesAlvo || 1;
     inpIcone.value = c.icone || '🏛️';
+    inpPausado.checked = !!c.pausado;
     btnDel.classList.remove('hidden');
   } else {
     titulo.textContent = 'Novo cofre';
@@ -2816,6 +2866,7 @@ function abreModalCofre(cofreId){
     inpAtual.value = '0';
     inpMes.value = 1;
     inpIcone.value = '🏛️';
+    inpPausado.checked = false;
     btnDel.classList.add('hidden');
   }
 
@@ -2843,13 +2894,14 @@ function bindModalCofre(){
     const atual = parseFloat(document.getElementById('cofreAtual').value.replace(',', '.')) || 0;
     const mesAlvo = parseInt(document.getElementById('cofreMesAlvo').value);
     const icone = document.getElementById('cofreIcone').value;
+    const pausado = document.getElementById('cofrePausado').checked;
     if(!nome){ toast('Digite o nome'); return; }
     if(meta <= 0){ toast('Meta deve ser maior que zero'); return; }
     if(editandoCofre){
-      await atualizaCofre(editandoCofre, { nome, meta, atual, mesAlvo, icone });
+      await atualizaCofre(editandoCofre, { nome, meta, atual, mesAlvo, icone, pausado });
       toast('Cofre atualizado');
     } else {
-      await criaCofre({ nome, meta, atual, mesAlvo, icone });
+      await criaCofre({ nome, meta, atual, mesAlvo, icone, pausado });
       toast('Cofre criado');
     }
     fechaModais();
