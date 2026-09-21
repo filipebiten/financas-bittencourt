@@ -100,6 +100,13 @@ input,select{font-family:inherit;color:var(--ink)}
 .foot-val.danger{color:var(--red)}
 .foot-val.ok{color:var(--green)}
 
+/* ---- v3.2: insight leve (Fase 3) ---- */
+.insight{margin-top:20px;border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.5;display:none}
+.insight.show{display:block}
+.insight.danger{background:var(--red-bg);color:var(--red)}
+.insight.amber{background:var(--amber-bg);color:var(--amber)}
+.insight strong{font-family:'Fraunces',serif;font-weight:500;color:inherit}
+
 /* ---- AVISO JULHO ---- */
 .warn{margin-top:20px;background:var(--warm-bg);border-radius:14px;padding:16px 18px;display:flex;gap:14px;align-items:flex-start}
 .warn-mark{width:28px;height:28px;background:var(--warm);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:18px;font-weight:500;flex-shrink:0}
@@ -484,6 +491,7 @@ input,select{font-family:inherit;color:var(--ink)}
 .saldo-val.neg{color:var(--red)}
 .saldo-val.pos{color:var(--green)}
 .saldo-sub{font-size:11px;color:var(--soft);font-style:italic;margin-top:3px}
+.saldo-sub.stale{color:var(--amber);font-style:normal;font-weight:500}
 .saldo-edit{color:var(--soft);font-size:18px}
 
 /* ---- v2.9: estouro do teto + falta no teto ---- */

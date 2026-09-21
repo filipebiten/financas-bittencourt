@@ -792,6 +792,22 @@ function gastoPorCategoria(catId, lista){
     .reduce((acc, l) => acc + (l.valor||0), 0);
 }
 
+// Lente conta × cartão (Fase 3): filtro só do detalhamento por categoria —
+// não mexe no termômetro/hero, porque o teto soma conta+cartão junto.
+let lenteContaCartao = 'tudo'; // 'tudo' | 'conta' | 'cartao'
+function bindLenteContaCartao(){
+  const wrap = document.getElementById('lenteContaCartao');
+  if(!wrap) return;
+  wrap.querySelectorAll('.chip').forEach(el => {
+    el.onclick = () => {
+      wrap.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      el.classList.add('active');
+      lenteContaCartao = el.dataset.lente;
+      renderHoje();
+    };
+  });
+}
+
 function renderHoje(){
   // determinar se mês visto é atual, passado ou futuro PRIMEIRO
   const hoje = new Date();
@@ -966,6 +982,7 @@ function renderHoje(){
     saldoVal.className = 'saldo-val ' + (saldoHoje < 0 ? 'neg' : 'pos');
 
     if(saldoSub){
+      saldoSub.classList.remove('stale');
       if(state.saldoContaAtualizadoEm){
         const d = new Date(state.saldoContaAtualizadoEm);
         const hoje = new Date();
@@ -974,7 +991,14 @@ function renderHoje(){
         if(diffH < 1) quando = 'agora';
         else if(diffH < 24) quando = `há ${diffH}h`;
         else quando = `há ${Math.floor(diffH/24)}d`;
-        saldoSub.textContent = `base atualizada ${quando} · toque pra redefinir`;
+        // nudge de frescor: passou de 7 dias sem reancorar, avisa (saldo desacoplado
+        // não se atualiza sozinho — sem o toque, ele vai ficando cada vez menos real)
+        if(diffH >= 24*7){
+          saldoSub.textContent = `⚠ base de ${quando} — vale conferir o extrato`;
+          saldoSub.classList.add('stale');
+        } else {
+          saldoSub.textContent = `base atualizada ${quando} · toque pra redefinir`;
+        }
       } else {
         saldoSub.textContent = 'toque pra redefinir';
       }
@@ -1014,19 +1038,24 @@ function renderHoje(){
     warn.style.display = (ehAtual && dias > 0 && dias <= 90) ? '' : 'none';
   }
 
-  // Lista categorias com drop-down
+  // Lista categorias com drop-down — respeita a lente conta×cartão (filtro visual,
+  // não muda o termômetro: o teto soma conta+cartão junto, filtrar quebraria a matemática)
+  const lancsLente = lenteContaCartao === 'tudo' ? lancsCombinados
+    : lenteContaCartao === 'cartao' ? lancsCombinados.filter(l => !!l.cartao)
+    : lancsCombinados.filter(l => !l.cartao);
+
   const list = document.getElementById('catsList');
   list.innerHTML = '';
   state.categorias.forEach(cat => {
-    const gasto = gastoPorCategoria(cat.id, lancsCombinados);
+    const gasto = gastoPorCategoria(cat.id, lancsLente);
     const teto = cat.teto || 0;
     const p = teto ? gasto / teto : 0;
     let cls = 'g', clsFill = '';
     if(p >= 0.9){ cls = 'r'; clsFill = 'r'; }
     else if(p >= 0.7){ cls = 'a'; clsFill = 'a'; }
 
-    // lançamentos desta categoria neste mês (combinados se for futuro)
-    const lancsCat = lancsCombinados
+    // lançamentos desta categoria neste mês (combinados se for futuro), já na lente ativa
+    const lancsCat = lancsLente
       .filter(l => (l.categoriaId || 'outros') === cat.id)
       .sort((a,b) => (b.ts||0) - (a.ts||0));
 
@@ -1088,6 +1117,34 @@ function renderHoje(){
 
     list.appendChild(el);
   });
+
+  // ============ Insight leve (Fase 3) ============
+  // Uma frase só sobre a categoria que mais precisa de atenção agora — não é
+  // um dashboard de BI, é o empurrão que ajuda a decidir no minuto.
+  const elInsight = document.getElementById('hojeInsight');
+  if(elInsight){
+    elInsight.className = 'insight';
+    elInsight.innerHTML = '';
+    if(ehAtual){
+      let piorEstourada = null, piorPct = 0;
+      let quaseCat = null, quasePct = 0;
+      state.categorias.forEach(cat => {
+        const teto = cat.teto || 0;
+        if(!teto) return;
+        const gasto = gastoPorCategoria(cat.id, lancsCombinados);
+        const p = gasto / teto;
+        if(p > 1 && p > piorPct){ piorPct = p; piorEstourada = {cat, gasto, teto}; }
+        else if(p >= 0.9 && p <= 1 && p > quasePct){ quasePct = p; quaseCat = {cat, gasto, teto}; }
+      });
+      if(piorEstourada){
+        elInsight.innerHTML = `${piorEstourada.cat.icone||''} <strong>${piorEstourada.cat.nome}</strong> estourou o teto em ${fmt(piorEstourada.gasto - piorEstourada.teto)}.`;
+        elInsight.classList.add('show','danger');
+      } else if(quaseCat){
+        elInsight.innerHTML = `${quaseCat.cat.icone||''} <strong>${quaseCat.cat.nome}</strong> já usou ${Math.round(quasePct*100)}% do teto.`;
+        elInsight.classList.add('show','amber');
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -3061,6 +3118,7 @@ async function init(){
     bindModalVirtual();
     bindModalEditarRec();
     bindModalSaldo();
+    bindLenteContaCartao();
     bindSeedV28();
     bindSeedV29();
     bindSeedV211();

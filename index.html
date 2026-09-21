@@ -133,6 +133,9 @@
         <div class="saldo-edit">✎</div>
       </div>
 
+      <!-- Insight leve: categoria que mais precisa de atenção agora -->
+      <div class="insight" id="hojeInsight"></div>
+
       <!-- Aviso julho -->
       <div class="warn" id="warnJulho">
         <div class="warn-mark">!</div>
@@ -142,8 +145,13 @@
         </div>
       </div>
 
-      <!-- Lista categorias com semáforo -->
+      <!-- Lente conta × cartão: filtra o detalhamento por categoria abaixo -->
       <h2 class="sec-title">Categorias</h2>
+      <div class="cat-chips" id="lenteContaCartao" style="margin-top:-2px;margin-bottom:16px">
+        <button class="chip active" data-lente="tudo">Tudo</button>
+        <button class="chip" data-lente="conta">Só conta</button>
+        <button class="chip" data-lente="cartao">Só cartão</button>
+      </div>
       <div class="cats" id="catsList"></div>
 
       <!-- Botão lançar -->
