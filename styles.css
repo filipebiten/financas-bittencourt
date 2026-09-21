@@ -20,6 +20,8 @@
 }
 
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--warm);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}}
 html,body{background:var(--paper);color:var(--ink);font-family:'Newsreader',Georgia,serif;font-size:17px;line-height:1.55;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
 body{min-height:100vh;min-height:100dvh;padding-bottom:env(safe-area-inset-bottom)}
 .hidden{display:none !important}
