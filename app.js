@@ -825,9 +825,10 @@ function renderHoje(){
   const gastoTotal = gastoLancamentos + cofresComprometido;
   const pct = tetoTotal ? (gastoTotal / tetoTotal) : 0;
   const estourou = gastoTotal > tetoTotal;
+  const falta = tetoTotal - gastoTotal;
 
-  // Termômetro principal
-  document.getElementById('gastoMes').textContent = fmtBig(gastoTotal);
+  // Termômetro principal — "gastamos X de Y" fica secundário (o hero é "quanto ainda posso gastar", abaixo)
+  document.getElementById('gastoMes').textContent = fmt(gastoTotal);
   document.getElementById('tetoMes').textContent = fmt(tetoTotal);
 
   // Linha de cofres
@@ -901,21 +902,39 @@ function renderHoje(){
     elRitmo.className = 'foot-val';
   }
 
-  // Disponível
-  const falta = tetoTotal - gastoTotal;
-  const elDisp = document.getElementById('dispMes');
+  // Falta/estouro (rodapé, mantido além do hero — útil pra meses passados/futuros)
+  const elDisp = document.getElementById('faltaMes');
   elDisp.textContent = falta >= 0 ? fmt(falta) : `−${fmt(Math.abs(falta))}`;
   elDisp.className = 'foot-val ' + (falta < 0 ? 'danger' : 'ok');
 
   // Marcador do dia: só aparece no mês atual
   document.getElementById('thermoMarker').style.display = ehAtual ? '' : 'none';
 
-  // Label do termômetro
+  // Hero do painel de 3 segundos: "quanto ainda posso gastar" (mês atual),
+  // ou o gasto do mês pra passado/futuro. Cor semáforo segue os mesmos limiares da barra.
   const thermoLbl = document.getElementById('thermoLabel');
-  if(thermoLbl){
-    if(ehAtual) thermoLbl.textContent = 'Gastamos este mês';
-    else if(ehPassado) thermoLbl.textContent = `Gastamos em ${MESES_NOMES[state.mes].toLowerCase()}`;
-    else thermoLbl.textContent = `Já comprometido em ${MESES_NOMES[state.mes].toLowerCase()}`;
+  const elHero = document.getElementById('thermoHeroVal');
+  const elHeroWrap = elHero ? elHero.parentElement : null;
+  if(thermoLbl && elHero && elHeroWrap){
+    elHeroWrap.classList.remove('ok','amber','danger');
+    if(ehAtual){
+      if(estourou){
+        thermoLbl.textContent = 'Estourou o teto em';
+        elHero.textContent = fmtBig(gastoTotal - tetoTotal);
+        elHeroWrap.classList.add('danger');
+      } else {
+        thermoLbl.textContent = 'Você ainda pode gastar';
+        elHero.textContent = fmtBig(falta);
+        elHeroWrap.classList.add(pct >= 0.9 ? 'amber' : 'ok');
+      }
+    } else if(ehPassado){
+      thermoLbl.textContent = `Gastamos em ${MESES_NOMES[state.mes].toLowerCase()}`;
+      elHero.textContent = fmtBig(gastoTotal);
+      if(estourou) elHeroWrap.classList.add('danger');
+    } else {
+      thermoLbl.textContent = `Já comprometido em ${MESES_NOMES[state.mes].toLowerCase()}`;
+      elHero.textContent = fmtBig(gastoTotal);
+    }
   }
 
   // ============ Saldo dinâmico ============
