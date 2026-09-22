@@ -2,12 +2,13 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a1815">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bolso">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Bolso · Bittencourt</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,8 +48,8 @@
     <div class="hdr-left">
       <div class="hdr-mark">B</div>
       <div>
-        <div class="hdr-title" id="hdrTitle">Maio · 2026</div>
-        <div class="hdr-sub" id="hdrSub">dia 27 de 31</div>
+        <h1 class="hdr-title" id="hdrTitle">Bolso</h1>
+        <div class="hdr-sub" id="hdrSub">carregando…</div>
       </div>
     </div>
     <div class="hdr-right">
@@ -186,7 +187,7 @@
       <!-- detalhamento de um mês específico -->
       <h2 class="sec-title" style="margin-top:32px">Escolher um mês</h2>
       <p class="sec-sub">Muda o gráfico de cima e o detalhamento de baixo.</p>
-      <select id="mesSelect" class="select" style="margin-bottom:16px"></select>
+      <select id="mesSelect" class="select" aria-label="Mês" style="margin-bottom:16px"></select>
       <div class="mes-detalhe" id="mesDetalhe"></div>
 
       <!-- comparativo entre meses -->

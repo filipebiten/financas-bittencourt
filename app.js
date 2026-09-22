@@ -409,7 +409,8 @@ async function escutaLancamentos(){
     const totais = {};
     state.lancamentos.forEach(l => {
       const cid = l.categoriaId || 'outros';
-      totais[cid] = (totais[cid] || 0) + (l.valor || 0);
+      // só gasto (mesmo filtro de buscaLancamentosDeUmMes): crédito/salário negativo derrubava o total do Histórico
+      totais[cid] = (totais[cid] || 0) + Math.max(0, l.valor || 0);
     });
     _historicoRealCache[key] = totais;
     render();
@@ -1455,7 +1456,7 @@ function renderInvestimentos(){
         <div class="quad">
           <div class="quad-top">
             <span class="quad-name"><span class="quad-sq" style="background:${info.cor}"></span>${info.nome}</span>
-            <span class="quad-pct" style="color:${info.cor}">${pct.toFixed(1)}%</span>
+            <span class="quad-pct">${pct.toFixed(1)}%</span>
           </div>
           <div class="quad-bar">
             <div class="quad-bar-fill" style="width:${Math.min(100,pct)}%;background:${info.cor}"></div>
