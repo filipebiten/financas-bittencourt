@@ -1082,7 +1082,7 @@ function renderHoje(){
               const cartaoTxt = l.cartao ? ` · ••${l.cartao}` : '';
               const ehVirtual = l.virtual === true;
               const tagRec = (l.origem === 'recorrencia' && !ehVirtual) ? ' <span class="lanc-recur-tag">🔁</span>' : '';
-              const tagCred = ehCredito ? ' <span class="lanc-credito-tag">crédito</span>' : '';
+              const tagCred = ehCredito ? ' <span class="lanc-credito-tag">entrada</span>' : '';
               const tagVirt = ehVirtual ? ' <span class="lanc-virtual-tag">futuro</span>' : '';
               const itemCls = 'cat-lanc-item' + (ehVirtual ? ' virtual' : '');
               return `
@@ -1664,7 +1664,7 @@ function renderLancamentos(){
     const ehCredito = (l.valor||0) < 0;
     const tagRecur = (ehRecorrente && !ehVirtual) ? '<span class="lanc-recur-tag">🔁 mensal</span>' : '';
     const tagVirt = ehVirtual ? '<span class="lanc-virtual-tag">futuro</span>' : '';
-    const tagCred = ehCredito ? '<span class="lanc-credito-tag">crédito</span>' : '';
+    const tagCred = ehCredito ? '<span class="lanc-credito-tag">entrada</span>' : '';
     const valStr = ehCredito ? `+${fmt(Math.abs(l.valor))}` : fmt(l.valor||0);
     const el = document.createElement('div');
     el.className = 'lanc' + (ehVirtual ? ' virtual' : '');
@@ -1790,7 +1790,7 @@ function abreModalVirtual(l){
   _virtualLanc = l;
   const rec = state.recorrencias.find(r => r.id === l.recorrenciaId);
   const nome = rec ? rec.descricao : l.descricao;
-  const valorTxt = (l.valor||0) < 0 ? `+${fmt(Math.abs(l.valor))} (crédito)` : fmt(l.valor||0);
+  const valorTxt = (l.valor||0) < 0 ? `+${fmt(Math.abs(l.valor))} (entrada)` : fmt(l.valor||0);
   const d = new Date(l.ts);
   const dataLbl = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
   document.getElementById('virtualText').innerHTML =
@@ -2413,7 +2413,7 @@ function bindModais(){
     }
     // Crédito pode ser parcelado (ex: estorno em N vezes), mas não recorrente
     if(ehCredito && recorrente){
-      toast('Crédito não pode ser recorrente — desmarque');
+      toast('Entrada não pode ser recorrente — desmarque');
       return;
     }
     if(parcelas > 48){
@@ -2442,7 +2442,7 @@ function bindModais(){
           await criaRecorrencia({ valor, descricao: desc, categoriaId: catEscolhida, diaDoMes: dia });
         }
         fechaModais();
-        toast(parcelas > 1 ? `${parcelas}x ${ehCredito ? 'de crédito ' : ''}criadas` : ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : 'Lançamento salvo'));
+        toast(parcelas > 1 ? `${parcelas}x ${ehCredito ? 'de entrada ' : ''}criadas` : ehCredito ? 'Entrada salva' : (recorrente ? 'Salvo e marcado como mensal' : 'Lançamento salvo'));
       };
       return;
     }
@@ -2452,7 +2452,7 @@ function bindModais(){
       await criaRecorrencia({ valor, descricao: desc, categoriaId: cat, diaDoMes: dia });
     }
     fechaModais();
-    toast(parcelas > 1 ? `${parcelas}x ${ehCredito ? 'de crédito ' : ''}criadas` : ehCredito ? 'Crédito salvo' : (recorrente ? 'Salvo e marcado como mensal' : 'Lançamento salvo'));
+    toast(parcelas > 1 ? `${parcelas}x ${ehCredito ? 'de entrada ' : ''}criadas` : ehCredito ? 'Entrada salva' : (recorrente ? 'Salvo e marcado como mensal' : 'Lançamento salvo'));
   };
 
   // Tip da recorrência
