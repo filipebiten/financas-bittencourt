@@ -708,15 +708,34 @@ async function atualizaGrao(novoValor){
   });
 }
 
-async function novoLancamento(valor, descricao, categoriaId, dataIso, parcelas){
-  const dataBase = dataIso ? new Date(dataIso + 'T12:00:00') : new Date();
+// Regime de fatura do cartão de crédito: fecha dia 2, vence dia 10 (Filipe, 25/09/2026).
+// Compra até dia 2 cai na fatura que vence dia 10 do MESMO mês; a partir do dia 3,
+// já fechou e cai na fatura que vence dia 10 do mês SEGUINTE. Vale igual pra gasto e
+// pra estorno/crédito no cartão (mesmo regime, abate a fatura em que cai).
+function calculaFaturaCartao(dataCompra){
+  const dia = dataCompra.getDate();
+  let mes = dataCompra.getMonth();
+  let ano = dataCompra.getFullYear();
+  if(dia > 2){
+    mes += 1;
+    if(mes > 11){ mes = 0; ano += 1; }
+  }
+  return new Date(ano, mes, 10, 12);
+}
+
+async function novoLancamento(valor, descricao, categoriaId, dataIso, parcelas, cartao){
+  let dataBase = dataIso ? new Date(dataIso + 'T12:00:00') : new Date();
   parcelas = parcelas || 1;
+  cartao = cartao || null;
+  // cartão de crédito: o lançamento conta no mês da FATURA, não no mês da compra
+  if(cartao) dataBase = calculaFaturaCartao(dataBase);
 
   if(parcelas <= 1){
     await addDoc(collection(db, 'lancamentos'), {
       valor: valor,
       descricao: descricao,
       categoriaId: categoriaId,
+      cartao: cartao,
       ts: dataBase.getTime(),
       data: dataBase.toISOString(),
       criadoEm: Date.now(),
@@ -725,7 +744,9 @@ async function novoLancamento(valor, descricao, categoriaId, dataIso, parcelas){
   }
 
   // Regime de caixa: valor informado É o valor da parcela (não o total) —
-  // repete o mesmo valor em N lançamentos, um por mês.
+  // repete o mesmo valor em N lançamentos, um por mês. dataBase já é o mês da 1ª
+  // fatura (se cartão) — cada parcela seguinte desloca +1 mês a partir dela, então
+  // cai na fatura dela mesma automaticamente.
   const valorParcela = valor;
   const grupoId = 'p' + Date.now(); // agrupa as parcelas
   const batch = writeBatch(db);
@@ -738,6 +759,7 @@ async function novoLancamento(valor, descricao, categoriaId, dataIso, parcelas){
       valor: valorParcela,
       descricao: `${descricao} (${i+1}/${parcelas})`,
       categoriaId: categoriaId,
+      cartao: cartao,
       ts: dataParc.getTime(),
       data: dataParc.toISOString(),
       criadoEm: Date.now(),
@@ -2345,10 +2367,12 @@ function abreModalAdd(){
   document.getElementById('parcelaTip').textContent = '';
   document.getElementById('inpRecorrente').checked = false;
   document.getElementById('recurTip').textContent = '';
-  // resetar tipo pra Gasto
+  // resetar tipo pra Gasto e forma de pagamento pra Conta
   document.querySelectorAll('.tipo-opt').forEach(el => {
-    el.classList.toggle('sel', el.dataset.tipo === 'gasto');
+    el.classList.toggle('sel', el.dataset.tipo === 'gasto' || el.dataset.forma === 'conta');
   });
+  document.getElementById('inpCartao').classList.add('hidden');
+  document.getElementById('cartaoTip').textContent = '';
   // data padrão = hoje
   const hoje = new Date().toISOString().split('T')[0];
   document.getElementById('inpData').value = hoje;
@@ -2387,14 +2411,20 @@ function bindModais(){
     atualizaParcelaTip();
   });
   document.getElementById('inpParcelas').addEventListener('input', atualizaParcelaTip);
+  document.getElementById('inpData').addEventListener('input', atualizaCartaoTip);
 
-  // Toggle gasto/crédito
-  document.querySelectorAll('.tipo-opt').forEach(opt => {
-    opt.onclick = () => {
-      document.querySelectorAll('.tipo-opt').forEach(o => o.classList.remove('sel'));
-      opt.classList.add('sel');
-    };
+  // Toggle gasto/crédito e conta/cartão — dois grupos .tipo-toggle na mesma tela,
+  // cada um só mexe nos próprios .tipo-opt (senão clicar num zera a seleção do outro).
+  document.querySelectorAll('.tipo-toggle').forEach(grupo => {
+    grupo.querySelectorAll('.tipo-opt').forEach(opt => {
+      opt.onclick = () => {
+        grupo.querySelectorAll('.tipo-opt').forEach(o => o.classList.remove('sel'));
+        opt.classList.add('sel');
+        if(opt.dataset.forma) atualizaCartaoTip();
+      };
+    });
   });
+  document.getElementById('inpCartao').addEventListener('change', atualizaCartaoTip);
 
   // BOTÃO DE VOZ — Web Speech API com fallback pro teclado (iOS)
   document.getElementById('voiceBtn').onclick = iniciaVoz;
@@ -2407,9 +2437,13 @@ function bindModais(){
     const parcelas = parseInt(document.getElementById('inpParcelas').value) || 1;
     const recorrente = document.getElementById('inpRecorrente').checked;
     // tipo: gasto (positivo) ou crédito (negativo)
-    const tipoSel = document.querySelector('.tipo-opt.sel');
+    const tipoSel = document.querySelector('[data-tipo].sel');
     const ehCredito = tipoSel && tipoSel.dataset.tipo === 'credito';
     const valor = ehCredito ? -Math.abs(valorBruto) : Math.abs(valorBruto);
+    // forma de pagamento: conta (débito/PIX, sai agora) ou cartão de crédito (entra na fatura)
+    const formaSel = document.querySelector('[data-forma].sel');
+    const ehCartao = formaSel && formaSel.dataset.forma === 'cartao';
+    const cartao = ehCartao ? document.getElementById('inpCartao').value : null;
 
     if(!valorBruto || valorBruto <= 0){
       toast('Informe um valor válido');
@@ -2451,7 +2485,7 @@ function bindModais(){
         if(lembrar){
           await salvaEstabelecimento(desc, catEscolhida);
         }
-        await novoLancamento(valor, desc, catEscolhida, data, parcelas);
+        await novoLancamento(valor, desc, catEscolhida, data, parcelas, cartao);
         if(recorrente){
           await criaRecorrencia({ valor, descricao: desc, categoriaId: catEscolhida, diaDoMes: dia });
         }
@@ -2461,7 +2495,7 @@ function bindModais(){
       return;
     }
 
-    await novoLancamento(valor, desc, cat, data, parcelas);
+    await novoLancamento(valor, desc, cat, data, parcelas, cartao);
     if(recorrente){
       await criaRecorrencia({ valor, descricao: desc, categoriaId: cat, diaDoMes: dia });
     }
@@ -2488,6 +2522,18 @@ function atualizaParcelaTip(){
   } else {
     tip.textContent = '';
   }
+}
+
+function atualizaCartaoTip(){
+  const ehCartao = document.querySelector('.tipo-opt[data-forma="cartao"].sel');
+  const wrap = document.getElementById('inpCartao');
+  const tip = document.getElementById('cartaoTip');
+  wrap.classList.toggle('hidden', !ehCartao);
+  if(!ehCartao){ tip.textContent = ''; return; }
+  const dataStr = document.getElementById('inpData').value;
+  if(!dataStr){ tip.textContent = ''; return; }
+  const fatura = calculaFaturaCartao(new Date(dataStr + 'T12:00:00'));
+  tip.textContent = `📅 Cai na fatura que vence em ${fatura.getDate()} de ${MESES_NOMES[fatura.getMonth()].toLowerCase()}`;
 }
 
 // ============================================================
