@@ -289,6 +289,7 @@ let state = {
   saldoContaAtualizadoEm: null,
   mes: new Date().getMonth(),
   ano: new Date().getFullYear(),
+  _carregado: { categorias: false, lancamentos: false },
 };
 
 // ============================================================
@@ -384,6 +385,7 @@ async function escutaCategorias(){
   onSnapshot(q, (snap) => {
     state.categorias = snap.docs.map(d => ({id: d.id, ...d.data()}));
     state.categorias.sort((a,b) => (a.ordem||99) - (b.ordem||99));
+    state._carregado.categorias = true;
     render();
   });
 }
@@ -413,6 +415,7 @@ async function escutaLancamentos(){
       totais[cid] = (totais[cid] || 0) + Math.max(0, l.valor || 0);
     });
     _historicoRealCache[key] = totais;
+    state._carregado.lancamentos = true;
     render();
     markSync('ok');
   }, (err) => {
@@ -431,6 +434,7 @@ function mudaMes(delta){
   state.ano = a;
   // limpa lançamentos enquanto carrega
   state.lancamentos = [];
+  state._carregado.lancamentos = false;
   render();
   escutaLancamentos();
 }
@@ -810,6 +814,16 @@ function bindLenteContaCartao(){
 }
 
 function renderHoje(){
+  // categorias/lancamentos ainda não chegaram do Firestore: mostra loading
+  // em vez de "R$ 0" (valor falso plausível — parecia saldo real zerado)
+  if(!state._carregado.categorias || !state._carregado.lancamentos){
+    const thermoLbl = document.getElementById('thermoLabel');
+    const elHero = document.getElementById('thermoHeroVal');
+    if(thermoLbl) thermoLbl.textContent = 'Carregando…';
+    if(elHero) elHero.textContent = '…';
+    return;
+  }
+
   // determinar se mês visto é atual, passado ou futuro PRIMEIRO
   const hoje = new Date();
   const ehAtual = (state.ano === hoje.getFullYear() && state.mes === hoje.getMonth());
