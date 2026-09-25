@@ -10,6 +10,10 @@
 //   - Bebi Festas duplicada em julho, confirmado -> apaga a manual de
 //     87,00 (seed-v30, 01/07), mantém a parcela real 1/3+2/3+3/3.
 //   - Óticas Carol -> confirma saude, já está certo, nada a fazer.
+//   - Seguro cartão 11,46 -> não mantém recorrente, mas o de agosto foi
+//     cobrado mesmo -> lança avulso, categoria seguros.
+//   - Débito viagem (Gramado/Parati/Três Lagoas) -> categoria lazer
+//     (não existe categoria "viagem" no app; chamada mais próxima).
 //
 // Lidos ao vivo no Firestore (Chrome logado) em 25/09/2026 pra pegar
 // id/data exatos antes de escrever:
@@ -17,13 +21,10 @@
 //   - "Tania" 60,00 (11/08) já lançado como alimentacao -> corrige p/ pessoalfilipe
 //   - "Bebi Festa Locação" 87,00 (01/07, origem seed-v30) -> duplicata, apaga
 //
-// NÃO INCLUÍDOS (sem data exata no roadmap, só valor agregado do
-// extrato — perguntar o dia certo antes de lançar às cegas):
-//   Rhoan 60 · Laura 30 (2º PIX) · Bruna 72,50 x2 · Julia 20+10 ·
-//   Deborah 100 · Isabela 25 · Elisa 15 · Beatriz 15 · Maria Eduarda 10 ·
-//   Fabiola 40 · Mafra 80 · débito viagem (Churrascaria Gramado 59,
-//   Auto Posto Parati 146,68, Drive Três Lagoas 83,60, Pit Stop Parati 39) ·
-//   seguro cartao 11,46
+// Parte 2 (25/09/2026): resto dos PIX pequenos + débito viagem + seguro
+// cartão. Filipe confirmou: dia exato não importa, só cair no mês certo
+// (agosto/2026) — usei dia 15 pros PIX (meio do mês) e 21–22 pro débito
+// de viagem (única janela que o extrato original dava).
 //
 // Idempotente. Roda no console (F12) LOGADO no app:
 //   const m = await import('./reconciliacao-agosto-2026-09-25.js?v=1'); await m.executaReconciliacaoAgosto2();
@@ -95,6 +96,51 @@ export async function executaReconciliacaoAgosto2(){
     log(`lançado: ${a.descricao} (${a.categoriaId}) R$${a.valor} em ${a.dataIso}`);
   }
 
-  log('concluído. Óticas Carol conferida como saude — nada a mudar.');
-  log('Ainda faltam (sem data exata): PIX Rhoan/Laura-2º/Bruna/Julia/Deborah/Isabela/Elisa/Beatriz/MariaEduarda/Fabiola/Mafra, débito viagem, seguro cartao.');
+  log('Óticas Carol conferida como saude — nada a mudar.');
+
+  // ---------------------------------------------------------
+  // 4. Resto dos PIX pequenos + débito viagem + seguro cartão
+  //    (dia chutado dentro do mês certo, valor é o que importa)
+  // ---------------------------------------------------------
+  const avulsos2 = [
+    { descricao: 'Pix Rhoan',              valor: 60.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Laura (2)',          valor: 30.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Bruna (1)',          valor: 72.50,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Bruna (2)',          valor: 72.50,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Julia (1)',          valor: 20.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Julia (2)',          valor: 10.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Deborah',            valor: 100.00, categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Isabela',            valor: 25.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Elisa',              valor: 15.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Beatriz',            valor: 15.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Maria Eduarda',      valor: 10.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Fabiola',            valor: 40.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Pix Mafra',              valor: 80.00,  categoriaId: 'pessoalfilipe', dataIso: '2026-08-15' },
+    { descricao: 'Churrascaria Gramado (viagem)',  valor: 59.00,  categoriaId: 'lazer', dataIso: '2026-08-21' },
+    { descricao: 'Auto Posto Parati (viagem)',     valor: 146.68, categoriaId: 'lazer', dataIso: '2026-08-21' },
+    { descricao: 'Drive Três Lagoas (viagem)',     valor: 83.60,  categoriaId: 'lazer', dataIso: '2026-08-22' },
+    { descricao: 'Pit Stop Parati (viagem)',       valor: 39.00,  categoriaId: 'lazer', dataIso: '2026-08-22' },
+    { descricao: 'Seguro cartão',           valor: 11.46,  categoriaId: 'seguros', dataIso: '2026-08-15' },
+  ];
+  const lancsSnap2 = await getDocs(collection(db, 'lancamentos'));
+  const existentes2 = lancsSnap2.docs.map(d => d.data());
+  for(const a of avulsos2){
+    const jaExiste = existentes2.some(l =>
+      Math.abs((l.valor||0) - a.valor) < 0.01 && new Date(l.ts).getMonth() === 7 && new Date(l.ts).getFullYear() === 2026
+      && norm(l.descricao).includes(norm(a.descricao).split(' ')[1] || norm(a.descricao).split(' ')[0])
+    );
+    if(jaExiste){ log(`já lançado (bate valor+mês+nome), pulei: ${a.descricao}`); continue; }
+    const dataBase = new Date(a.dataIso + 'T12:00:00');
+    await addDoc(collection(db, 'lancamentos'), {
+      valor: a.valor,
+      descricao: a.descricao,
+      categoriaId: a.categoriaId,
+      ts: dataBase.getTime(),
+      data: dataBase.toISOString(),
+      criadoEm: Date.now(),
+    });
+    log(`lançado: ${a.descricao} (${a.categoriaId}) R$${a.valor} em ${a.dataIso}`);
+  }
+
+  log('concluído.');
 }
