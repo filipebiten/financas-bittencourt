@@ -174,9 +174,9 @@
   {d:"Shopee Hyperbaby",v:65.7,n:6,c:"filhos",ca:"3877"}
   ];
   const baseDesc = s => (s||'').replace(/\s\(\d+\/\d+\)$/,'').trim().toLowerCase();
-  const existentes = new Set((await getDocs(query(collection(db,'lancamentos'),where('origem','==','parcela')))).docs.map(x=>baseDesc(x.data().descricao)));
+  const existentes = new Set((await getDocs(query(collection(db,'lancamentos'),where('origem','==','parcela')))).docs.map(x=>baseDesc(x.data().descricao)+'|'+x.data().valor));
   for(const p of PARC){
-    if(existentes.has(baseDesc(p.d))){ console.warn("PULADO (ja existe parcela):", p.d); continue; }
+    if(existentes.has(baseDesc(p.d)+'|'+p.v)){ console.warn("PULADO (ja existe parcela igual):", p.d, p.v); continue; }
     const grupo='p'+Date.now()+Math.random().toString(36).slice(2,6);
     const b=writeBatch(db);
     for(let k=1;k<=p.n;k++){
